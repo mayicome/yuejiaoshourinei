@@ -259,7 +259,7 @@ def batch_optimize(input_file=None, param_file=None, output_dir=None, progress_c
     print(f"总耗时: {time.time()-start_time:.1f}秒")
     print(f"成功: {success_count}, 失败: {failed_count}")
 
-def batch_optimize_single_process(input_file, param_file, output_dir=None, progress_callback=None):
+def batch_optimize_single_process(input_file, param_file, output_dir, progress_callback=None):
     """
     批量优化函数 - 单进程版本
     对于UI应用程序使用，避免多进程序列化问题
@@ -309,6 +309,18 @@ def batch_optimize_single_process(input_file, param_file, output_dir=None, progr
         try:
             from optimization_runner import run_optimization
             results = run_optimization(config, param_grid,progress_callback)
+            # 修改results的列名为中文
+            results.columns = ['波动阈值', '夏普比率', '总收益', '最大回撤', '回撤波峰时间', '回撤波谷时间', '胜率', '总交易天数', '最小交易次数', '最大交易次数', '总交易次数', '平均每日交易次数', '是否最佳']
+            # 先确保第一列的值为字符串类型
+            results.iloc[:, 0] = results.iloc[:, 0].astype(str)
+            # 一步操作：截取字符串，去掉前13个字符和后20个字符
+            results.iloc[:, 0] = results.iloc[:, 0].str[13:-20]
+            # 将第2、3、4、7、12列的值保留小数点后4位
+            results.iloc[:, 1] = results.iloc[:, 1].apply(lambda x: round(x, 4))
+            results.iloc[:, 2] = results.iloc[:, 2].apply(lambda x: round(x, 4))
+            results.iloc[:, 3] = results.iloc[:, 3].apply(lambda x: round(x, 4))
+            results.iloc[:, 6] = results.iloc[:, 6].apply(lambda x: round(x, 4))
+            results.iloc[:, 11] = results.iloc[:, 11].apply(lambda x: round(x, 4))
             
             # 处理结果
             output_file = os.path.join(output_dir, f"optimizer_result_{symbol.split('.')[0]}.xlsx")

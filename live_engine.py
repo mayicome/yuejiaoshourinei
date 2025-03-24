@@ -21,7 +21,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
     def on_stock_order(self, order):
         """委托回报推送"""
         # 创建线程处理订单状态
-        self.engine.logger.info(f"XT-委托回报推送: {order.order_id}, 股票代码={order.stock_code}, 方向={order.order_type}, 价格={order.price}, 数量={order.order_volume}")
+        #self.engine.logger.info(f"XT-委托回报推送: {order.order_id}, 股票代码={order.stock_code}, 方向={order.order_type}, 价格={order.price}, 数量={order.order_volume}")
         Thread(target=self.engine.on_order_callback, args=(order,), daemon=True).start()
         
     def on_stock_trade(self, trade):
@@ -297,7 +297,7 @@ class LiveEngine(TradeEngine):
                 self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能买入")
                 return False, f"股票代码：{stock_code}，无法获取实时价格，未能买入"#super().buy(stock_code, price, volume, datetime)
                 
-            self.logger.info(f"股票代码：{stock_code}，智能买入定价: {dynamic_price} (基准价: {price})")
+            self.logger.info(f"股票代码：{stock_code}，智能买入定价: {dynamic_price} (基准价: {price})，买入数量: {volume}")
             
             # 发送限价单
             order_id = self.xt_trader.order_stock(
@@ -359,6 +359,8 @@ class LiveEngine(TradeEngine):
             if not dynamic_price:
                 self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能卖出")
                 return False, f"股票代码：{stock_code}，无法获取实时价格，未能卖出"#super().sell(stock_code, price, volume, datetime)
+            
+            self.logger.info(f"股票代码：{stock_code}，智能卖出定价: {dynamic_price} (基准价: {price})，卖出数量: {volume}")
                 
             # 发送限价单
             order_id = self.xt_trader.order_stock(

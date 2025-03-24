@@ -31,7 +31,7 @@ class OrderBookStrategy(StrategyBase):
         self.trend_confirmation = 3
         
         # 使用传入的logger或创建默认logger
-        self.logger = logger or logging.getLogger('AdaptiveLimitStrategy')
+        self.logger = logger or logging.getLogger('LiveTrade')
 
         self.volume_processor = VolumeProcessor(window=100)  
         

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1029</width>
-    <height>1072</height>
+    <height>895</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -86,7 +86,7 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="">
+      <widget class="QWidget" name="layoutWidget">
        <layout class="QVBoxLayout" name="verticalLayout_6">
         <item>
          <layout class="QHBoxLayout" name="horizontalLayout_5">
@@ -184,7 +184,7 @@
              <item>
               <widget class="QPushButton" name="pushButton_3">
                <property name="text">
-                <string>一键智能选参</string>
+                <string>一键智能评估</string>
                </property>
               </widget>
              </item>
@@ -266,15 +266,6 @@
      </widget>
     </item>
    </layout>
-   <zorder>groupBox_4</zorder>
-   <zorder>groupBox_2</zorder>
-   <zorder>splitter_2</zorder>
-   <zorder>horizontalSpacer</zorder>
-   <zorder>horizontalSpacer_4</zorder>
-   <zorder>horizontalSpacer_5</zorder>
-   <zorder>groupBox</zorder>
-   <zorder>groupBox_3</zorder>
-   <zorder>groupBox_4</zorder>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="action">

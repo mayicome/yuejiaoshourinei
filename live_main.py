@@ -21,9 +21,12 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QHBoxLayout,
     QSplitter,
-    QProgressBar
+    QProgressBar,
+    QProgressDialog,
+    QComboBox,
+    QDateEdit
 )
-from PyQt5.QtGui import QIntValidator, QRegExpValidator, QDoubleValidator, QColor
+from PyQt5.QtGui import QIntValidator, QRegExpValidator, QDoubleValidator, QColor, QTextCursor
 from PyQt5.QtCore import (
     QTimer, QThread, QMetaObject, Q_ARG, pyqtSlot, pyqtSignal,
     Qt, QRegExp
@@ -51,6 +54,9 @@ import batch_optimizer
 import requests
 import zipfile
 import shutil
+import subprocess
+import threading
+import queue
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 xtdata.enable_hello = False
@@ -78,11 +84,55 @@ def symbol2stock(symbol):
         return f"{symbol}.BJ"  # 北交所
     else:
         raise ValueError(f"无效的股票代码: {symbol}")
+    
+def list_top_level(dir_path):
+    """
+    仅遍历指定目录的顶层内容
+    :param dir_path: 要遍历的目录路径
+    :return: 生成器，逐个返回 (条目路径, 是否是目录) 的元组
+    """
+    try:
+        for entry in os.scandir(dir_path):
+            yield (entry.path, entry.is_dir())
+    except Exception as e:
+        print(f"目录遍历失败: {str(e)}")
+
+def safe_path_handle(path):
+    """安全处理包含特殊字符的路径"""
+    try:
+        # 处理中文路径编码问题
+        if isinstance(path, bytes):
+            path = path.decode('utf-8')
+        # 转换Windows长路径格式
+        if os.name == 'nt' and not path.startswith('\\\\?\\'):
+            path = '\\\\?\\' + os.path.abspath(path)
+        return os.path.normpath(path)
+    except Exception as e:
+        print(f"路径处理失败: {path} - {str(e)}")
+        return path
+
+def copy_files(source_dir, target_dir):
+        """文件复制处理"""
+        # 复制文件
+        # 遍历source_dir目录下的所有文件和子目录
+        src_dir = source_dir #safe_path_handle(source_dir)
+        # 把src_dir中的\\换成\
+        #src_dir = src_dir.replace('\\\\', '\\')
+        dst_dir = target_dir #safe_path_handle(target_dir)
+        # 把dst_dir中的\\换成\  
+        #dst_dir = dst_dir.replace('\\\\', '\\')
+
+        files = [p for p, is_dir in list_top_level(src_dir) if not is_dir]
+        print(files)
+        for file in files:
+            #src_file = os.path.join(src_dir, file)
+            dst_file = os.path.join(dst_dir, file)    
+            
+        shutil.copy2(file, dst_file)  # 保留元数据
+        print(f"已复制: {file} → {dst_file}")
 
 class TradingThread(QThread):
     """交易线程"""
-    status_changed = pyqtSignal(bool)  # True表示运行，False表示停止
-    
     def __init__(self, engine):
         super().__init__()
         self.engine = engine
@@ -99,7 +149,6 @@ class TradingThread(QThread):
     def run(self):
         """运行交易逻辑"""
         try:
-            self.status_changed.emit(True)
             self.is_running = True
             period = 'tick'
             if self.engine.stock_code in self.engine.positions:
@@ -137,7 +186,7 @@ class TradingThread(QThread):
         except Exception as e:
             self.logger.error(f"股票代码：{self.engine.stock_code}交易线程出错: {str(e)}")
             self.is_running = False
-            self.status_changed.emit(False)
+            
             
     def resubscribe(self):
         """重新订阅行情"""
@@ -168,7 +217,6 @@ class TradingThread(QThread):
         if hasattr(self, 'seq'):
             xtdata.unsubscribe_quote(self.seq)
         self.logger.info(f"股票代码：{self.engine.stock_code}停止交易，当前持仓: [持仓数量{self.engine.positions[self.engine.stock_code]['volume']},可用数量{self.engine.positions[self.engine.stock_code]['can_use_volume']},成本价{self.engine.positions[self.engine.stock_code]['open_price']},市值{self.engine.positions[self.engine.stock_code]['market_value']}],目标仓位: {self.engine.target_position}")
-        self.status_changed.emit(False)
 
 # 创建一个新的线程类
 class InitTradingThread(QThread):
@@ -210,6 +258,166 @@ class OptimizationThread(QThread):
             progress_callback=self.progress_callback
         )
 
+class UpgradeThread(QThread):
+    finished_signal = pyqtSignal(bool, str)
+
+    def __init__(self, latest_version, parent=None):
+        super().__init__(parent)
+        self.latest_version = latest_version
+        self.logger = logging.getLogger('LiveTrade')
+        self.logger.info(f"正在升级，新版本号为：{self.latest_version}")
+
+    def run(self):
+        try:
+            # 下载
+            self.logger.info("开始下载")
+            self._do_download()
+
+            # 解压
+            self.logger.info("开始解压")
+            self._do_extract()
+
+            # 文件复制
+            self.logger.info("开始复制")
+            self._do_file_copy()
+
+            # 标记最终成功状态
+            success = True
+            message = "升级完成，即将重启"
+            self.logger.info(message)
+
+        except Exception as e:
+            success = False
+            message = f"升级失败: {str(e)}"
+            
+    def _do_download(self):
+        """下载处理"""
+        # 添加具体下载逻辑
+        # 下载文件
+        url = f"https://github.com/mayicome/yuejiaoshourinei/archive/refs/tags/{self.latest_version}.zip"
+        response = requests.get(url)
+        with open(f"{self.latest_version}.zip", "wb") as f:
+            f.write(response.content)
+        self.logger.info(f"下载完成，文件名为：{self.latest_version}.zip")
+
+    def _do_extract(self):
+        """解压处理"""
+        # 创建更新目录
+        update_dir = "updates"
+        if not os.path.exists(update_dir):
+            os.makedirs(update_dir)
+            
+        # 解压文件到指定目录
+        with zipfile.ZipFile(f"{self.latest_version}.zip", "r") as zip_ref:
+            zip_ref.extractall(update_dir)
+
+        # 获取解压后的文件夹名。我不知道解压后的文件夹名！要获取解压后的文件夹名，需要遍历解压后的文件夹，找到文件夹名。
+        for file in os.listdir(update_dir):
+            if os.path.isdir(os.path.join(update_dir, file)):
+                unzip_dir = os.path.join(update_dir, file)
+                break
+        print(f"解压后的文件夹名：{unzip_dir}")
+        # 获取unzip_dir的绝对路径
+        unzip_dir = os.path.abspath(unzip_dir)
+        self.unzip_dir = unzip_dir
+
+        
+            
+        # 删除压缩文件
+        os.remove(f"{self.latest_version}.zip")
+
+    def _do_file_copy(self):
+        """文件复制处理"""
+        # 复制文件
+        # 获取当前文件夹路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.current_dir = current_dir
+        # 复制文件
+        #self.logger.info(f"开始复制文件: {self.unzip_dir} → {current_dir}")
+        # 文件路径有空格，需要用双引号包裹
+        #yuejiaoshourinei_dir = f'"{yuejiaoshourinei_dir}"'
+        #current_dir = f'"{current_dir}"'
+        #if copy_files(self.unzip_dir, current_dir):
+        #    self.logger.info("文件复制成功")
+        #else:
+        #    self.logger.error("文件复制失败")
+        # 对于self.unzip_dir目录下的每个文件，不包含子目录的文件
+        # 获取self.unzip_dir目录下的所有文件
+        files = self.get_directory_contents()
+        print("files:",files)
+        # 遍历files，只保留不包含子目录的文件
+        #files = [f for f in files if not os.path.isdir(os.path.join(self.unzip_dir, f))]
+        #print(files)
+
+        #for file in files:
+        #    dst_file = os.path.join(current_dir, file)        
+        #    shutil.copy2(file, dst_file)  # 保留元数据
+        #    print(f"已复制: {file} → {dst_file}")
+
+    def get_directory_contents(self):
+        """安全获取目录内容"""
+        print(f"开始获取目录: {self.unzip_dir}", flush=True)
+        try:
+            # 验证目录是否存在且可访问
+            if not os.path.exists(self.unzip_dir):
+                print(f"错误: 目录不存在 {self.unzip_dir}", flush=True)
+                return []
+                
+            if not os.access(self.unzip_dir, os.R_OK):
+                print(f"错误: 无读取权限 {self.unzip_dir}", flush=True)
+                return []
+            
+            # 使用超时方式执行目录列表获取
+            
+            result_queue = queue.Queue()
+            
+            def list_dir_with_timeout():
+                try:
+                    result = os.listdir(self.unzip_dir)
+                    result_queue.put(("success", result))
+                except Exception as e:
+                    result_queue.put(("error", str(e)))
+            
+            # 在单独线程中执行目录获取
+            worker = threading.Thread(target=list_dir_with_timeout)
+            worker.daemon = True  # 设置为守护线程
+            worker.start()
+            
+            # 等待结果（最多5秒）
+            worker.join(timeout=5)
+            
+            if worker.is_alive():
+                print("警告: 获取目录列表超时", flush=True)
+                return []
+                
+            if not result_queue.empty():
+                status, result = result_queue.get()
+                if status == "success":
+                    print(f"成功获取目录，包含 {len(result)} 个项目", flush=True)
+                    print("result:",result)
+                    # 对于result的每一个文件
+                    for file in result:
+                        # 获取file的绝对路径
+                        file_path = os.path.join(self.unzip_dir, file)
+                        # 检查file_path是否是目录
+                        if os.path.isdir(file_path):
+                            print(f"{file} 是目录，跳过")
+                        else:
+                            print(f"{file} 是文件，复制到当前目录")
+                            if not file.endswith('.ini'):
+                                # 复制file到当前目录
+                                shutil.copy2(file_path, self.current_dir)
+                                print(f"已复制: {file} → {self.current_dir}")
+                else:
+                    print(f"获取目录时出错: {result}", flush=True)
+                    return []
+            
+            return []
+            
+        except Exception as e:
+            print(f"遇到意外错误: {str(e)}", flush=True)
+            return []
+
 class LiveTradeWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
@@ -220,7 +428,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         
         # 初始化变量
-        self.trading_active = False
         self.trading_thread = None
         self.last_trading_heartbeat = time.time()  # 初始化心跳时间
         
@@ -242,7 +449,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             account_id=self.account  # 使用从config读取的account
         )
         
-                
         # 设置主窗口引用到engine
         self.engine.set_main_window(self)  
 
@@ -358,6 +564,10 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 添加异常捕获钩子
         sys.excepthook = self.handle_uncaught_exception
 
+        self.progress_dialog = None
+        self.upgrade_thread = None
+        self.progress_label = None
+
     def optimization_progress_callback(self, current, total):
         """优化回调函数"""
         self.progress_count = int((current / total) * 100)
@@ -368,9 +578,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             Qt.QueuedConnection,
             Q_ARG(int, self.progress_count)
         )
-        #self.logger.info(f"正在回测优化中...{self.progress_count}%")
-
-
 
     def init_trading_interface(self):
         """初始化交易接口"""
@@ -402,11 +609,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             self.max_trade_times = int(config.get('setting', 'max_trade_times'))
             param_grid = config.get('setting', 'param_grid')
             self.param_grid = eval(param_grid)
-
-    def handle_thread_status(self, is_running):
-        """处理线程状态变化"""
-        self.trading_active = is_running
-        self.logger.info(f"交易线程状态更新: {'运行中' if is_running else '已停止'}")
 
     def receive_message(self, message):
         """接收消息"""
@@ -560,7 +762,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
         self.statusbar.showMessage("账户连接状态：正常")
 
-
     def on_button_clicked(self):
         """处理按钮点击事件"""
         if self.pushButton.text() == "开始交易":
@@ -570,14 +771,20 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
 
     def on_button_2_clicked(self):
         """处理按钮点击事件"""
-        if self.result_file:
+        result_file = getattr(self, 'result_file', None)
+        
+        if result_file and os.path.exists(result_file):
             # 读取excel文件并在新窗口显示
-            df = pd.read_excel(self.result_file)
+            df = pd.read_excel(result_file)
+            # 判断是否读取成功
+            if df.empty:
+                QMessageBox.warning(self, "警告", "还没有智能评测结果，请在回测后查看")
+                return
             # 创建一个新窗口
             new_window = QDialog(self)
             new_window.setWindowTitle("优化结果")
             new_window.setFixedSize(800, 600)
-            # 创建一个表格
+                # 创建一个表格
             table = QTableWidget(new_window)
             table.setGeometry(10, 10, 780, 580)
             
@@ -589,13 +796,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             # 填充表格数据
             for i, row in enumerate(df.itertuples(index=False)):
                 for j, value in enumerate(row):
+                    #if j == 0:
                     table.setItem(i, j, QTableWidgetItem(str(value)))
             
             # 显示新窗口
             new_window.show()
         else:
-            QMessageBox.warning(self, "警告", "还没有优化结果文件！")
-        
+            QMessageBox.warning(self, "警告", "还没有智能评测结果，请在回测后查看") 
 
     def on_button_3_clicked(self):
         """处理按钮点击事件"""
@@ -603,7 +810,22 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             # 创建DataFrame时直接指定列名
             columns = ['代码', '名称', '起始日期', '结束日期', '基础仓位', '可用仓位', '目标仓位', '平均成本', '初始可用资金']
             stocks = pd.DataFrame(columns=columns)
-            stocks.loc[0] = [self.engine.stock_code, self.get_stock_name(self.engine.stock_code), (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d'), (datetime.now() - timedelta(days=0)).strftime('%Y-%m-%d'), self.current_table.item(self.current_table.currentRow(), 2).text(), self.current_table.item(self.current_table.currentRow(), 3).text(), self.lineEdit_2.text(), self.current_table.item(self.current_table.currentRow(), 4).text(), self.engine.cash]
+            
+            # 正确处理QDate对象
+            start_date = self.start_date.toString("yyyy-MM-dd") if hasattr(self, 'start_date') else (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = self.end_date.toString("yyyy-MM-dd") if hasattr(self, 'end_date') else datetime.now().strftime('%Y-%m-%d')
+            
+            stocks.loc[0] = [
+                self.engine.stock_code, 
+                self.get_stock_name(self.engine.stock_code), 
+                start_date, 
+                end_date, 
+                self.current_table.item(self.current_table.currentRow(), 2).text(), 
+                self.current_table.item(self.current_table.currentRow(), 3).text(), 
+                self.lineEdit_2.text(), 
+                self.current_table.item(self.current_table.currentRow(), 4).text(), 
+                self.engine.cash
+            ]
         else:
             QMessageBox.warning(self, "警告", "请先选择要交易的股票！")
             return
@@ -616,63 +838,117 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         try:
             # 创建进度对话框
             self.progress_window = QDialog(self)
-            self.progress_window.setWindowTitle("通过回测智能选参")
-            self.progress_window.setFixedSize(400, 100)
+            self.progress_window.setWindowTitle("智能评估参数")
+            self.progress_window.setFixedSize(400, 150)  # 增加高度
             
+            # 设置窗口标志（保留关闭按钮，移除帮助按钮）
+            self.progress_window.setWindowFlags(
+                Qt.Dialog | 
+                Qt.WindowTitleHint |
+                Qt.WindowSystemMenuHint |
+                Qt.WindowCloseButtonHint  # 只保留关闭按钮
+            )
+
             # 设置布局
             layout = QVBoxLayout(self.progress_window)
             
             # 添加标签和进度条
-            label = QLabel("正在进行策略回测和参数优化，请稍候...", self.progress_window)
+            label = QLabel("正在进行不同参数组合的策略回测，请稍候...", self.progress_window)
             self.progress_bar = QProgressBar(self.progress_window)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
             
+            # 添加状态标签
+            self.status_label = QLabel("正在准备评估任务...", self.progress_window)
+            self.status_label.setWordWrap(True)
+            
+            # 添加取消按钮
+            cancel_button = QPushButton("取消", self.progress_window)
+            cancel_button.clicked.connect(self.cancel_optimization)
+            
             layout.addWidget(label)
             layout.addWidget(self.progress_bar)
+            layout.addWidget(self.status_label)
+            layout.addWidget(cancel_button)
+            
+            # 设置进度条更新定时器
+            self.progress_timer = QTimer()
+            self.progress_timer.timeout.connect(self.update_optimization_status)
+            self.progress_timer.start(1000)  # 每500毫秒更新一次
             
             # 设置进度条为0
             self.progress_count = 0
             
-            # 使用QThread运行批处理优化任务，增加回调函数获取进度
-            def progress_callback(current, total):
-                self.progress_count = int((current / total) * 100)
-                self.progress_bar.setValue(self.progress_count)
-                #self.logger.info(f"正在回测优化中...{self.progress_count}%")
-
             # 使用类方法作为回调
             self.optimization_thread = OptimizationThread(file_path, param_file, output_dir, self.optimization_progress_callback)
             self.optimization_thread.finished.connect(self.on_optimization_finished)
             
+            # 显示提示信息
+            self.status_label.setText("正在启动回测任务，请耐心等待...")
             
             # 显示进度窗口
             self.progress_window.show()
+            QApplication.processEvents()  # 强制处理等待的事件
 
             # 启动优化线程
+            self.optimization_thread = OptimizationThread(file_path, param_file, output_dir, self.optimization_progress_callback)
+            self.optimization_thread.finished.connect(self.on_optimization_finished)
             self.optimization_thread.start()
             
         except Exception as e:
             self.logger.error(f"保存或执行优化时出错: {str(e)}")
             QMessageBox.warning(self, "错误", f"保存或执行优化时出错: {str(e)}")
 
-    def progress_callback(self, current, total):
-        """进度回调函数"""
-        self.progress_count = int((current / total) * 100)
-        self.progress_bar.setValue(self.progress_count)
-        #self.logger.info(f"正在回测优化中...{self.progress_count}%")
-    
-    def update_progress(self):
-        """更新进度条"""
-        if self.progress_count < 98:  # 保留最后2%给完成时
-            self.progress_count += 1
+    def update_optimization_status(self):
+        """更新优化状态"""
+        if hasattr(self, 'progress_count'):
             self.progress_bar.setValue(self.progress_count)
-            #self.logger.info(f"正在回测优化中...{self.progress_count}%")
+            
+            # 根据进度更新状态提示
+            if self.progress_count < 20:
+                self.status_label.setText("正在准备评估数据...")
+            elif self.progress_count < 40:
+                self.status_label.setText("正在执行参数组合分析...")
+            elif self.progress_count < 60:
+                self.status_label.setText("正在进行历史数据回测...")
+            elif self.progress_count < 80:
+                self.status_label.setText("正在计算收益指标...")
+            else:
+                self.status_label.setText("正在生成评估报告...")
+
+    def cancel_optimization(self):
+        """取消优化任务"""
+        if hasattr(self, 'optimization_thread') and self.optimization_thread.isRunning():
+            reply = QMessageBox.question(
+                self.progress_window, 
+                "确认取消", 
+                "确定要取消评估任务吗？已完成的评估将丢失。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # 先安全地停止定时器
+                if hasattr(self, 'progress_timer') and self.progress_timer.isActive():
+                    self.progress_timer.stop()
+
+                # 终止线程
+                self.optimization_thread.terminate()
+                self.optimization_thread.wait(1000)
+                
+                # 关闭进度窗口
+                self.progress_window.close()
+                
+                QMessageBox.information(self, "已取消", "评估任务已取消")
 
     def on_optimization_finished(self):
         """优化完成后的操作"""
+        # 先安全地停止定时器
+        if hasattr(self, 'progress_timer') and self.progress_timer.isActive():
+            self.progress_timer.stop()
+
         # 设置进度为100%
         self.progress_bar.setValue(100)
-        self.logger.info("回测优化完成 100%")
         
         # 延迟关闭进度窗口
         QTimer.singleShot(1000, self.progress_window.accept)
@@ -681,15 +957,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         self.result_file = os.path.join(os.path.dirname(__file__), 'data', f"optimizer_result_{symbol}.xlsx")
         # 以只读的方式打开优化结果excel文件
         df = pd.read_excel(self.result_file)
-        # 读取第一行params列的值
-        params = df.iloc[0]['params']
-        params = params.replace("{'threshold': ", "")
-        params = params.replace(", 'trade_size': 100}", "")
+        # 读取第一行波动阈值列的值
+        params = df.iloc[0]['波动阈值']
         print(f"优化结果: {params}")        
-        self.lineEdit.setText(params)
+        self.lineEdit.setText(str(params))
         # 显示完成消息
-        QMessageBox.information(self, "完成", f"优化已完成，波动阈值的推荐值为{params}，可以根据实际情况调整。查看详细的回测结果请点击右侧按钮")
-
+        QMessageBox.information(self, "完成", f"回测已完成，回测的结果显示：在指定时间段，给出的波动阈值中，最优的值为{params}。\n该结果并不构成投资建议，请根据实际情况调整后再开始进行实盘交易。\n查看详细的回测结果请点击右侧按钮")
+        self.logger.info(f"优化已完成，波动阈值的推荐值为{params}")
 
     def add_stock(self):
         """添加单支股票"""
@@ -798,11 +1072,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             validator.setNotation(QDoubleValidator.StandardNotation)
             self.lineEdit.setValidator(validator)
         elif self.sender().text() == "盘口动量增强策略":
-            self.label.setText("策略参数：")
-            self.radioButton_2.setChecked(True)
+            QMessageBox.information(self, "提示", "该功能为VIP功能，请先升级为VIP")
+            #self.label.setText("策略参数：")
+            self.radioButton.setChecked(True)
         elif self.sender().text() == "事件驱动套利策略":
-            self.label.setText("策略参数：")
-            self.radioButton_3.setChecked(True)
+            QMessageBox.information(self, "提示", "该功能为VVIP功能，请先升级为VVIP")
+            #self.label.setText("策略参数：")
+            self.radioButton.setChecked(True)
 
     def start_trading(self):
         """开始交易"""
@@ -858,11 +1134,30 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
             # 创建并设置策略（传入engine参数）
             if strategy_type == "adaptive_limit":
-                strategy = AdaptiveLimitStrategy(self.engine, threshold=self.threshold, trade_size=100, min_trade_amount=self.min_trade_amount, max_trade_times=self.max_trade_times, logger=self.logger)  # 传入engine
+                strategy = AdaptiveLimitStrategy(
+                    self.engine, 
+                    threshold=self.threshold, 
+                    trade_size=100, 
+                    min_trade_amount=self.min_trade_amount, 
+                    max_trade_times=self.max_trade_times, 
+                    logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
+                )
+                self.logger.info(f"使用浮动限价策略，波动阈值为{self.threshold},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times}")
             elif strategy_type == "order_book":
-                strategy = OrderBookStrategy(self.engine, bid_vol_threshold=500, ask_vol_threshold=300, min_trade_amount=self.min_trade_amount, max_trade_times=self.max_trade_times, logger=self.logger)  # 传入engine
+                strategy = OrderBookStrategy(
+                    self.engine, 
+                    bid_vol_threshold=500, 
+                    ask_vol_threshold=300, 
+                    min_trade_amount=self.min_trade_amount, 
+                    max_trade_times=self.max_trade_times, 
+                    logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
+                )
+                self.logger.info(f"使用盘口动量增强策略，买一档成交量阈值为{500},卖一档成交量阈值为{300},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times}")
             '''elif strategy_type == "event_driven":
-                strategy = EventDrivenStrategy(self.engine, logger=self.logger)  # 传入engine'''
+                strategy = EventDrivenStrategy(
+                    self.engine, 
+                    logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
+                )  # 传入engine'''
             self.engine.set_strategy(strategy)
 
             # 禁用表格选择但保持可见
@@ -884,7 +1179,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                         
             # 创建并启动交易线程
             self.trading_thread = TradingThread(self.engine)
-            self.trading_thread.status_changed.connect(self.handle_thread_status)
             self.trading_thread.start()
 
         except Exception as e:
@@ -978,7 +1272,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
             pos = None
             # 如果启动了交易线程
-            if self.trading_active:
+            if self.trading_thread:
                 # 只显示当前交易股票或占位记录
                 self.current_table.setRowCount(1)
                 pos = positions[self.engine.stock_code]
@@ -1031,12 +1325,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 self.current_table.setItem(row, 4, QTableWidgetItem(f"{open_price:.3f}"))
                 self.current_table.setItem(row, 5, QTableWidgetItem(f"{market_value:.2f}"))
 
-            '''if self.trading_active:
-                for row in range(self.current_table.rowCount()):
-                    item = self.current_table.item(row, 0)
-                    if item and item.text() == self.engine.stock_code:
-                        current_row = row
-                        break'''
             self.current_table.selectRow(current_row)
 
         #except Exception as e:
@@ -1080,7 +1368,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             self.tableWidget.setItem(current_row, 1, QTableWidgetItem(datetime.now().strftime('%H:%M:%S')))
             self.tableWidget.setItem(current_row, 2, QTableWidgetItem(order.stock_code))
             self.tableWidget.setItem(current_row, 3, QTableWidgetItem("买入" if order.order_type == 23 else "卖出"))
-            self.tableWidget.setItem(current_row, 4, QTableWidgetItem(str(order.price)))
+            self.tableWidget.setItem(current_row, 4, QTableWidgetItem(str(round(order.price, 2))))
             self.tableWidget.setItem(current_row, 5, QTableWidgetItem(str(order.order_volume)))
             self.tableWidget.setItem(current_row, 6, QTableWidgetItem(status_map.get(order.order_status, "未知")))
             self.tableWidget.setItem(current_row, 7, QTableWidgetItem("岳教授日内交易"))
@@ -1157,75 +1445,106 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 self.logger.error(f"写入{csv_file}文件时出错: {e}")
 
     def get_latest_version(self):
-        """获取最新版本号"""
-        url = "https://github.com/yuexuecheng/live_trade/releases"
-        response = requests.get(url)
-        if response.status_code == 200:
-            return response.text.split("</a>")[0].split(">")[1]
+        """通过GitHub API获取最新版本号"""
+        api_url = "https://api.github.com/repos/mayicome/yuejiaoshourinei/releases/latest"
+        
+        try:
+            # 添加User-Agent头避免被拒绝
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            
+            response = requests.get(api_url, headers=headers)
+            if response.status_code == 200:
+                # 解析JSON数据获取tag_name
+                data = response.json()
+                return data['tag_name']
+            else:
+                print(f"API请求失败，状态码：{response.status_code}")
+                return "0.0.0"
+            
+        except Exception as e:
+            print(f"获取版本号时出错：{str(e)}，请确保你能访问gitHub.com再试。")
+            return "0.0.0"
 
     def show_version(self):
         """显示版本信息"""
-        from version import show_version_info
+        from version import show_version_info, get_version
         # 获取当前版本号
-        current_version = show_version_info()
+        current_version = get_version()
+        version_info = show_version_info()
         # 获取最新版本号
-        latest_version = self.get_latest_version()
+        self.latest_version = self.get_latest_version()
         # 显示版本信息
-        if current_version == latest_version:
-            QMessageBox.information(self, "版本信息", f"当前版本: {current_version}\n最新版本: {latest_version}\n已是最新版本")
-            # 增加一个按钮，点击按钮后，启动升级程序
+        if current_version == self.latest_version:
+            QMessageBox.information(self, "版本信息", f"当前版本: {version_info}\n最新版本: {self.latest_version}\n已是最新版本")
+        else:
+            # 弹出对话框，提示用户更新，可以选择更新或者不更新
+            dialog = QDialog(self)
+            dialog.setWindowTitle("版本管理")
+            dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            layout = QVBoxLayout()
+            label = QLabel(f"当前版本: {current_version}\n最新版本: {self.latest_version}\n\n请及时更新")
+            layout.addWidget(label)
             button = QPushButton("升级")
             button.clicked.connect(self.upgrade_program)
-            QMessageBox.information(self, "版本信息", f"当前版本: {current_version}\n最新版本: {latest_version}\n已是最新版本")
-        else:
-            QMessageBox.information(self, "版本信息", f"当前版本: {current_version}\n最新版本: {latest_version}\n请及时更新")
+            layout.addWidget(button)
+            dialog.setLayout(layout)
+            dialog.exec_()
 
     def upgrade_program(self):
-        """升级程序"""
-        # 下载并安装升级程序        
-        # 下载升级程序
-        url = "https://github.com/yuexuecheng/live_trade/releases"
-        response = requests.get(url)
-        if response.status_code == 200:
-            # 下载升级程序
-            # 创建临时文件夹存放下载文件
-            temp_dir = "temp_upgrade"
-            if not os.path.exists(temp_dir):
-                os.makedirs(temp_dir)
-            
-            # 下载文件到临时目录
-            file_path = os.path.join(temp_dir, "live_trade.zip")
-            with open(file_path, "wb") as f:
-                f.write(response.content)
-            
-            self.logger.info("升级程序下载完成")
-            self.statusbar.showMessage("升级程序下载完成")
-            # 解压升级程序
-            with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            self.logger.info("升级程序解压完成")
-            self.statusbar.showMessage("升级程序解压完成")  
-            # 安装升级程序
-            # 获取当前程序的安装路径
-            current_path = os.path.abspath(sys.argv[0])
-            # 获取当前程序的安装目录
-            current_dir = os.path.dirname(current_path)
-            # 安装升级程序
-            shutil.copy(os.path.join(temp_dir, "live_trade.exe"), current_dir)
-            self.logger.info("升级程序安装完成")
-            self.statusbar.showMessage("升级程序安装完成")
-            # 重启程序
-            os.system(f"start {current_path}")
-            # 关闭当前程序
-            os._exit(0)
-            # 启动升级程序  
-            os.system(f"start {os.path.join(current_dir, 'live_trade.exe')}")
-            # 退出当前程序  
-            os._exit(0)
-        else:
-            self.logger.error("升级程序下载失败")
-            self.statusbar.showMessage("升级程序下载失败")  
+        """启动升级流程"""
+        if not hasattr(self, 'latest_version') or not self.latest_version:
+            QMessageBox.warning(self, "警告", "没有可用的更新版本")
+            return
         
+        self.logger.info(f"开始升级，新版本号为：{self.latest_version}")
+        
+        # 创建并启动升级线程
+        self.upgrade_thread = UpgradeThread(self.latest_version)
+        self.upgrade_thread.finished_signal.connect(self.handle_upgrade_finished)
+        self.upgrade_thread.start()
+
+    def handle_upgrade_finished(self, success, message):
+        """统一处理完成信号"""
+        # 确保只处理一次
+        if not hasattr(self, '_processing_finish'):
+            self._processing_finish = True
+            
+            # 关闭进度对话框
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                self.progress_dialog = None
+            
+            # 显示最终结果
+            if success:
+                QMessageBox.information(self, "成功", message)
+                self.restart_application()
+            else:
+                QMessageBox.critical(self, "失败", message)
+            
+            del self._processing_finish
+
+    def cancel_upgrade(self):
+        """安全取消升级"""
+        if self.upgrade_thread and self.upgrade_thread.isRunning():
+            # 禁用取消按钮防止重复点击
+            self.progress_dialog.setCancelButtonText("正在取消...")
+            self.progress_dialog.setCancelButton(None)
+            
+            # 发送中断请求
+            self.upgrade_thread.requestInterruption()
+            
+            # 设置超时检测
+            self.check_timer = QTimer(self)
+            self.check_timer.timeout.connect(self.check_upgrade_status)
+            self.check_timer.start(1000)  # 每秒检查一次
+
+    def check_upgrade_status(self):
+        """检查升级线程状态"""
+        if not self.upgrade_thread.isRunning():
+            self.check_timer.stop()
+            QMessageBox.warning(self, "取消", "升级操作已中止")
 
     def show_setting(self):
         """显示设置参数"""
@@ -1241,6 +1560,8 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 每笔交易最少金额
         min_trade_amount_label = QLabel("每笔交易最少金额:")
         self.min_trade_amount_input = QLineEdit()
+        #设置输入框的大小为10个字符
+        self.min_trade_amount_input.setFixedWidth(100)
         self.min_trade_amount_input.setValidator(QIntValidator())
         self.min_trade_amount_input.setText(str(self.min_trade_amount))
         layout.addWidget(min_trade_amount_label)
@@ -1249,6 +1570,8 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 每天最多交易次数
         max_trade_times_label = QLabel("每天最多交易次数:")
         self.max_trade_times_input = QLineEdit()
+        #设置输入框的大小为10个字符
+        self.max_trade_times_input.setFixedWidth(100)
         self.max_trade_times_input.setValidator(QIntValidator())
         self.max_trade_times_input.setText(str(self.max_trade_times))
         layout.addWidget(max_trade_times_label)
@@ -1257,12 +1580,47 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 参数网格
         thresholds_label = QLabel("波动阈值:")
         self.thresholds_input = QLineEdit()
+        #设置输入框的大小为10个字符
+        self.thresholds_input.setFixedWidth(980)
         # 从字典param_grid中获取thresholds
         # 先把字符串转换为字典
         thresholds = self.param_grid['threshold']
         self.thresholds_input.setText(str(thresholds))
         layout.addWidget(thresholds_label)
         layout.addWidget(self.thresholds_input)
+
+        #回测开始日期
+        start_date_label = QLabel("回测开始日期（从下拉框中选择，只能选最近一个月以内的）:")
+        self.start_date_input = QDateEdit()
+        #设置输入框的大小为10个字符
+        self.start_date_input.setFixedWidth(100)
+        #限制只能从日历中选择日期，不能输入日期
+        self.start_date_input.setCalendarPopup(True)
+
+        start_date = self.start_date.toString("yyyy-MM-dd") if hasattr(self, 'start_date') else (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        self.start_date_input.setDate(datetime.strptime(start_date, '%Y-%m-%d').date())
+        #限制不能选择今天以前一个月以前的日期
+        self.start_date_input.setMinimumDate(datetime.now().date() - timedelta(days=30))
+        #限制不能选择今天以后的日期
+        self.start_date_input.setMaximumDate(datetime.now().date() - timedelta(days=0))
+        layout.addWidget(start_date_label)
+        layout.addWidget(self.start_date_input)
+
+        #回测结束日期
+        end_date_label = QLabel("回测结束日期（从下拉框中选择，只能选最近一个月以内的）:")
+        self.end_date_input = QDateEdit()
+        #设置输入框的大小为10个字符
+        self.end_date_input.setFixedWidth(100)
+        #限制只能从日历中选择日期，不能输入日期
+        self.end_date_input.setCalendarPopup(True)
+        end_date = self.end_date.toString("yyyy-MM-dd") if hasattr(self, 'end_date') else datetime.now().strftime('%Y-%m-%d')
+        self.end_date_input.setDate(datetime.strptime(end_date, '%Y-%m-%d').date())
+        #限制不能选择今天以前一个月以前的日期
+        self.end_date_input.setMinimumDate(datetime.now().date() - timedelta(days=30))
+        #限制不能选择今天以后的日期
+        self.end_date_input.setMaximumDate(datetime.now().date() - timedelta(days=0))
+        layout.addWidget(end_date_label)
+        layout.addWidget(self.end_date_input)
 
         # 添加确定按钮
         ok_button = QPushButton("确定")
@@ -1275,6 +1633,14 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
     def save_setting(self):
         """保存设置"""
         try:
+            start_date = self.start_date_input.date()
+            end_date = self.end_date_input.date()
+            if start_date > end_date:
+                QMessageBox.warning(self, "警告", "回测开始日期不能大于回测结束日期")
+                return
+            self.start_date = start_date
+            self.end_date = end_date
+            print(f"回测开始日期: {self.start_date}, 回测结束日期: {self.end_date}")
             min_trade_amount = self.min_trade_amount_input.text()
             max_trade_times = self.max_trade_times_input.text()
             self.min_trade_amount = int(min_trade_amount)
@@ -1310,7 +1676,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             with open(config_path, 'w', encoding=encoding) as f:
                 config.write(f)
             
-            QMessageBox.information(self, "成功", "设置已保存，将在下一次开始交易时生效。\n注意：\n如果当前已启动交易，需要先中止交易再重启交易方能生效。")
+            QMessageBox.information(self, "成功", "设置已保存，将在下一次开始实盘或回测时生效。\n注意：\n1、如果当前已启动交易，需要先中止交易再重启交易方能生效。\n2、回撤起止日期只在本次程序中生效，重启程序将恢复初始的一个月的起止日期。")
             
             # 关闭对话框（正确的方式）
             self.sender().parent().close()
@@ -1349,7 +1715,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
 
     def check_trading_status(self):
         """检查交易状态"""
-        if self.trading_active:  # 只检查交易是否激活
+        if self.trading_thread:  # 只在交易启动时检查
             # 获取当前时间
             now = datetime.now()
             current_time = now.time()
@@ -1367,8 +1733,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 (current_time >= morning_start and current_time <= morning_end) or  # 上午交易时段
                 (current_time >= afternoon_start and current_time <= afternoon_end)  # 下午交易时段
             )
-
-
             
             # 只在交易日的交易时段内检查心跳
             if is_trading_day and is_trading_hour:
@@ -1394,13 +1758,28 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
             # 重新创建并启动交易线程
             self.trading_thread = TradingThread(self.engine)
-            self.trading_thread.status_changed.connect(self.handle_thread_status)
             self.trading_thread.start()
             
             self.logger.info("交易线程已重启")
             
         except Exception as e:
             self.logger.error(f"重启交易线程时出错: {str(e)}")
+
+    def restart_application(self):
+        """安全重启应用（处理特殊路径）"""
+        QApplication.quit()
+        
+        # 获取当前执行文件的绝对路径（带双引号）
+        main_file = f'"{os.path.abspath(sys.argv[0])}"'
+        
+        # 获取Python解释器路径（带双引号）
+        python_exe = f'"{sys.executable}"'
+        
+        # 使用subprocess确保路径解析正确
+        subprocess.Popen(f"{python_exe} {main_file}", shell=True)
+        
+        # 完全退出当前进程
+        os._exit(0)
 
 if __name__ == "__main__":
     # 设置Python环境的默认编码

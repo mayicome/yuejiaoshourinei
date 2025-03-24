@@ -18,7 +18,7 @@ class AdaptiveLimitStrategy(StrategyBase):
         trade_size (int): 每次交易数量
     """
     
-    def __init__(self, engine, threshold=0.004, trade_size=100, min_trade_amount=10000, max_trade_times=5, logger=None):
+    def __init__(self, engine, threshold=0.005, trade_size=100, min_trade_amount=10000, max_trade_times=5, logger=None):
         """
         初始化浮动限价策略
         
@@ -35,8 +35,8 @@ class AdaptiveLimitStrategy(StrategyBase):
         self.min_trade_amount = min_trade_amount
         self.max_trade_times = max_trade_times
         
-        # 使用传入的logger或创建默认logger
-        self.logger = logger or logging.getLogger('AdaptiveLimitStrategy')
+        # 使用传入的logger或创建新的logger
+        self.logger = logger or logging.getLogger('LiveTrade')
         
         self.daily_stats = {
             'date': None,
