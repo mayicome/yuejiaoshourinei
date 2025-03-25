@@ -329,7 +329,7 @@ class UpgradeThread(QThread):
             # 遍历files，只保留不包含.zip的文件
             files = [f for f in files if not f.endswith('.zip')]
             self.logger.info("开始复制")
-            # 获取当前路径
+            # 获取当前目录
             current_dir = os.path.dirname(os.path.abspath(__file__))
             for file in files:
                 # 获取file的绝对路径
@@ -341,7 +341,7 @@ class UpgradeThread(QThread):
             # 删除压缩文件
             os.remove(f"{self.latest_version}.zip")
             # 删除解压后的文件夹
-            os.rmdir(path_obj)
+            shutil.rmtree(path_obj)
             self.logger.info("复制完成")
 
             success = True
