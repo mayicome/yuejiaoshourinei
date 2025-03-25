@@ -57,6 +57,7 @@ import shutil
 import subprocess
 import threading
 import queue
+from pathlib import Path
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 xtdata.enable_hello = False
@@ -258,6 +259,31 @@ class OptimizationThread(QThread):
             progress_callback=self.progress_callback
         )
 
+def get_zip_root_dir(zip_path):
+    """获取zip文件的根目录名称"""
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        # 获取所有文件列表
+        all_files = zip_ref.namelist()
+        
+        # 如果为空，返回None
+        if not all_files:
+            return None
+            
+        # 查找根目录名
+        root_dirs = set()
+        for file_path in all_files:
+            # 分割路径，取第一段
+            parts = file_path.split('/')
+            if parts and parts[0]:  # 确保非空
+                root_dirs.add(parts[0])
+        
+        # 如果只有一个根目录，返回它
+        if len(root_dirs) == 1:
+            return root_dirs.pop()
+        else:
+            # 多个根目录（可能没有公共根目录）
+            return list(root_dirs)
+
 class UpgradeThread(QThread):
     finished_signal = pyqtSignal(bool, str)
 
@@ -265,158 +291,67 @@ class UpgradeThread(QThread):
         super().__init__(parent)
         self.latest_version = latest_version
         self.logger = logging.getLogger('LiveTrade')
-        self.logger.info(f"正在升级，新版本号为：{self.latest_version}")
 
     def run(self):
         try:
             # 下载
             self.logger.info("开始下载")
-            self._do_download()
-
-            # 解压
-            self.logger.info("开始解压")
-            self._do_extract()
-
-            # 文件复制
+            url = f"https://github.com/mayicome/yuejiaoshourinei/archive/refs/tags/{self.latest_version}.zip"
+            response = requests.get(url)
+            with open(f"{self.latest_version}.zip", "wb") as f:
+                f.write(response.content)
+            self.logger.info(f"下载完成")
+            self.logger.info(f"开始解压")
+            update_dir = "updates"
+            if not os.path.exists(update_dir):
+                os.makedirs(update_dir)
+            # 解压文件到指定目录
+            with zipfile.ZipFile(f"{self.latest_version}.zip", "r") as zip_ref:
+                zip_ref.extractall(update_dir)
+            self.logger.info(f"解压完成")
+            root_dir = get_zip_root_dir(f"{self.latest_version}.zip")
+            if root_dir is None:
+                self.logger.error("解压后的根目录名获取失败")
+                return
+            if isinstance(root_dir, list):
+                self.logger.error("解压后的根目录名获取失败")
+                return
+            unzip_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), update_dir, root_dir)
+            path_obj = Path(unzip_dir)
+            if not path_obj.exists():
+                self.logger.error(f"错误: 目录不存在: {unzip_dir}")
+                return []
+                
+            files = [item.name for item in path_obj.iterdir()]
+            
+            # 遍历files，只保留不包含.ini的文件
+            files = [f for f in files if not f.endswith('.ini')]
+            # 遍历files，只保留不包含.zip的文件
+            files = [f for f in files if not f.endswith('.zip')]
             self.logger.info("开始复制")
-            self._do_file_copy()
+            for file in files:
+                # 获取file的绝对路径
+                unzip_file = os.path.join(unzip_dir, file)
+                file_obj = Path(unzip_file)
+                # 复制file到当前目录
+                shutil.copy2(file_obj, self.current_dir)
+            
+            # 删除压缩文件
+            os.remove(f"{self.latest_version}.zip")
+            # 删除解压后的文件夹
+            os.rmdir(path_obj)
+            self.logger.info("复制完成")
 
-            # 标记最终成功状态
             success = True
-            message = "升级完成，即将重启"
+            message = "升级完成，即将重启。"
             self.logger.info(message)
 
         except Exception as e:
             success = False
             message = f"升级失败: {str(e)}"
-            
-    def _do_download(self):
-        """下载处理"""
-        # 添加具体下载逻辑
-        # 下载文件
-        url = f"https://github.com/mayicome/yuejiaoshourinei/archive/refs/tags/{self.latest_version}.zip"
-        response = requests.get(url)
-        with open(f"{self.latest_version}.zip", "wb") as f:
-            f.write(response.content)
-        self.logger.info(f"下载完成，文件名为：{self.latest_version}.zip")
 
-    def _do_extract(self):
-        """解压处理"""
-        # 创建更新目录
-        update_dir = "updates"
-        if not os.path.exists(update_dir):
-            os.makedirs(update_dir)
-            
-        # 解压文件到指定目录
-        with zipfile.ZipFile(f"{self.latest_version}.zip", "r") as zip_ref:
-            zip_ref.extractall(update_dir)
-
-        # 获取解压后的文件夹名。我不知道解压后的文件夹名！要获取解压后的文件夹名，需要遍历解压后的文件夹，找到文件夹名。
-        for file in os.listdir(update_dir):
-            if os.path.isdir(os.path.join(update_dir, file)):
-                unzip_dir = os.path.join(update_dir, file)
-                break
-        print(f"解压后的文件夹名：{unzip_dir}")
-        # 获取unzip_dir的绝对路径
-        unzip_dir = os.path.abspath(unzip_dir)
-        self.unzip_dir = unzip_dir
-
-        
-            
-        # 删除压缩文件
-        os.remove(f"{self.latest_version}.zip")
-
-    def _do_file_copy(self):
-        """文件复制处理"""
-        # 复制文件
-        # 获取当前文件夹路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        self.current_dir = current_dir
-        # 复制文件
-        #self.logger.info(f"开始复制文件: {self.unzip_dir} → {current_dir}")
-        # 文件路径有空格，需要用双引号包裹
-        #yuejiaoshourinei_dir = f'"{yuejiaoshourinei_dir}"'
-        #current_dir = f'"{current_dir}"'
-        #if copy_files(self.unzip_dir, current_dir):
-        #    self.logger.info("文件复制成功")
-        #else:
-        #    self.logger.error("文件复制失败")
-        # 对于self.unzip_dir目录下的每个文件，不包含子目录的文件
-        # 获取self.unzip_dir目录下的所有文件
-        files = self.get_directory_contents()
-        print("files:",files)
-        # 遍历files，只保留不包含子目录的文件
-        #files = [f for f in files if not os.path.isdir(os.path.join(self.unzip_dir, f))]
-        #print(files)
-
-        #for file in files:
-        #    dst_file = os.path.join(current_dir, file)        
-        #    shutil.copy2(file, dst_file)  # 保留元数据
-        #    print(f"已复制: {file} → {dst_file}")
-
-    def get_directory_contents(self):
-        """安全获取目录内容"""
-        print(f"开始获取目录: {self.unzip_dir}", flush=True)
-        try:
-            # 验证目录是否存在且可访问
-            if not os.path.exists(self.unzip_dir):
-                print(f"错误: 目录不存在 {self.unzip_dir}", flush=True)
-                return []
-                
-            if not os.access(self.unzip_dir, os.R_OK):
-                print(f"错误: 无读取权限 {self.unzip_dir}", flush=True)
-                return []
-            
-            # 使用超时方式执行目录列表获取
-            
-            result_queue = queue.Queue()
-            
-            def list_dir_with_timeout():
-                try:
-                    result = os.listdir(self.unzip_dir)
-                    result_queue.put(("success", result))
-                except Exception as e:
-                    result_queue.put(("error", str(e)))
-            
-            # 在单独线程中执行目录获取
-            worker = threading.Thread(target=list_dir_with_timeout)
-            worker.daemon = True  # 设置为守护线程
-            worker.start()
-            
-            # 等待结果（最多5秒）
-            worker.join(timeout=5)
-            
-            if worker.is_alive():
-                print("警告: 获取目录列表超时", flush=True)
-                return []
-                
-            if not result_queue.empty():
-                status, result = result_queue.get()
-                if status == "success":
-                    print(f"成功获取目录，包含 {len(result)} 个项目", flush=True)
-                    print("result:",result)
-                    # 对于result的每一个文件
-                    for file in result:
-                        # 获取file的绝对路径
-                        file_path = os.path.join(self.unzip_dir, file)
-                        # 检查file_path是否是目录
-                        if os.path.isdir(file_path):
-                            print(f"{file} 是目录，跳过")
-                        else:
-                            print(f"{file} 是文件，复制到当前目录")
-                            if not file.endswith('.ini'):
-                                # 复制file到当前目录
-                                shutil.copy2(file_path, self.current_dir)
-                                print(f"已复制: {file} → {self.current_dir}")
-                else:
-                    print(f"获取目录时出错: {result}", flush=True)
-                    return []
-            
-            return []
-            
-        except Exception as e:
-            print(f"遇到意外错误: {str(e)}", flush=True)
-            return []
+        # 发送信号
+        self.finished_signal.emit(success, message)
 
 class LiveTradeWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
@@ -1458,7 +1393,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             if response.status_code == 200:
                 # 解析JSON数据获取tag_name
                 data = response.json()
-                print(data)
                 return data['tag_name']
             else:
                 print(f"API请求失败，状态码：{response.status_code}")
@@ -1479,6 +1413,8 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 显示版本信息
         if current_version == self.latest_version:
             QMessageBox.information(self, "版本信息", f"当前版本: {version_info}\n最新版本: {self.latest_version}\n已是最新版本")
+        elif self.latest_version == "未获取到":
+            QMessageBox.information(self, "版本信息", f"当前版本: {version_info}\n最新版本: {self.latest_version}\n请确保你能访问gitHub.com再试。")
         else:
             # 弹出对话框，提示用户更新，可以选择更新或者不更新
             dialog = QDialog(self)
@@ -1500,11 +1436,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             return
         
         self.logger.info(f"开始升级，新版本号为：{self.latest_version}")
-        
+
         # 创建并启动升级线程
         self.upgrade_thread = UpgradeThread(self.latest_version)
         self.upgrade_thread.finished_signal.connect(self.handle_upgrade_finished)
         self.upgrade_thread.start()
+        # 关闭对话框
+        self.sender().parent().close()
 
     def handle_upgrade_finished(self, success, message):
         """统一处理完成信号"""
@@ -1512,16 +1450,12 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         if not hasattr(self, '_processing_finish'):
             self._processing_finish = True
             
-            # 关闭进度对话框
-            if self.progress_dialog:
-                self.progress_dialog.close()
-                self.progress_dialog = None
-            
             # 显示最终结果
             if success:
                 QMessageBox.information(self, "成功", message)
                 self.restart_application()
             else:
+                message = message + "\n请确保你能访问gitHub.com再试。"
                 QMessageBox.critical(self, "失败", message)
             
             del self._processing_finish
