@@ -1458,14 +1458,15 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             if response.status_code == 200:
                 # 解析JSON数据获取tag_name
                 data = response.json()
+                print(data)
                 return data['tag_name']
             else:
                 print(f"API请求失败，状态码：{response.status_code}")
-                return "0.0.0"
+                return "未获取到"
             
         except Exception as e:
             print(f"获取版本号时出错：{str(e)}，请确保你能访问gitHub.com再试。")
-            return "0.0.0"
+            return "未获取到"
 
     def show_version(self):
         """显示版本信息"""
