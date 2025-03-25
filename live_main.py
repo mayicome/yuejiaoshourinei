@@ -341,7 +341,7 @@ class UpgradeThread(QThread):
             # 删除压缩文件
             os.remove(f"{self.latest_version}.zip")
             # 删除解压后的文件夹
-            os.rmdir(path_obj)
+            shutil.rmtree(path_obj)
             self.logger.info("复制完成")
 
             success = True
