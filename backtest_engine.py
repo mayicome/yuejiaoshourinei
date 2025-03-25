@@ -6,7 +6,7 @@ import time
 import logging
 import os
 import numpy as np
-from utils.drawdown_calculator import DrawdownCalculator
+from drawdown_calculator import DrawdownCalculator
 
 def symbol2stock(symbol):
     """
@@ -214,53 +214,6 @@ class BacktestEngine(TradeEngine):
         if hasattr(self, 'strategy'):
             self.strategy.on_bar(bar_data)
         
-    '''def get_backtest_results(self):
-        """
-        获取回测结果统计
-        Returns:
-            dict: 回测结果统计数据
-        """
-        #try:
-        if True:
-            # 使用最新价格更新市值
-            last_price = (
-                self.data.iloc[-1]['lastPrice'] 
-                if 'lastPrice' in self.data.columns 
-                else self.data.iloc[-1]['close']
-            )
-            
-            # 计算当前市值
-            self.market_value = sum(
-                self.get_volume(position) * float(last_price)
-                for position in self.positions
-            )
-            
-            # 计算总资产
-            self.total_asset = self.cash + self.market_value
-            
-            return {
-                'initial_price': round(self.initial_market_value / self.target_position, 2),
-                'initial_capital': self.initial_cash,
-                'initial_volume': self.target_position,
-                'initial_market_value': self.initial_market_value,
-                'initial_asset': self.initial_cash + self.initial_market_value,
-                'final_price': last_price,
-                'final_capital': self.cash,
-                'final_volume': self.get_volume(self.stock_code),
-                'final_market_value': self.market_value,
-                'final_asset': self.total_asset,
-                'total_trades': len(self.trades),
-                'total_returns': (self.total_asset - (self.initial_cash + self.initial_market_value)) 
-                               / (self.initial_cash + self.initial_market_value),
-                'win_rate': self.calculate_win_rate(),
-                'max_drawdown': self._calculate_mdd(),
-                
-            }
-            
-        #except Exception as e:
-        #    self.logger.error(f"获取回测结果出错: {str(e)}")
-        #    return None'''
-
     def setup_account_info(self, stock_code, base_position, can_use_position, target_position, avg_cost, initial_capital):
         """
         设置账户初始信息

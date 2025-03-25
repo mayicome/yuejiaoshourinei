@@ -72,6 +72,20 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="label_13">
+          <property name="text">
+           <string>可用数量</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_7">
+          <property name="text">
+           <string>10000</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QLabel" name="label_12">
           <property name="text">
            <string>目标仓位</string>

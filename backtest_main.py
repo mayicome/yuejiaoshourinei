@@ -108,12 +108,12 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             # 设置周期选择下拉框
             self.ui.comboBox_2.clear()  # 先清空已有项
             periods = [
-                ("逐笔", "tick"),
-                ("1分钟", "1m"),
-                ("5分钟", "5m"),
-                ("15分钟", "15m"),
-                ("30分钟", "30m"),
-                ("60分钟", "60m")
+                ("逐笔", "tick")#,
+                #("1分钟", "1m"),
+                #("5分钟", "5m"),
+                #("15分钟", "15m"),
+                #("30分钟", "30m"),
+                #("60分钟", "60m")
             ]
             for display_text, value in periods:
                 self.ui.comboBox_2.addItem(display_text, value)
@@ -225,6 +225,7 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             start_date = self.ui.dateEdit.date().toPyDate()
             end_date = self.ui.dateEdit_2.date().toPyDate()
             base_position = int(self.ui.lineEdit_2.text() or "0")
+            can_use_position = int(self.ui.lineEdit_2.text() or "0")
             target_position = int(self.ui.lineEdit_6.text() or "0")
             initial_capital = int(self.ui.lineEdit_3.text() or "1000000")
             avg_cost = float(self.ui.lineEdit_4.text() or "0")
@@ -242,12 +243,16 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
                 QMessageBox.warning(self, "警告", "开始日期必须早于结束日期")
                 return
                 
-            if initial_capital <= 0:
-                QMessageBox.warning(self, "警告", "可用资金必须大于0")
+            if initial_capital < 0:
+                QMessageBox.warning(self, "警告", "可用资金必须大于等于0")
+                return
+            
+            if can_use_position > base_position:
+                QMessageBox.warning(self, "警告", "可用持仓必须小于等于底仓")
                 return
                 
-            if base_position > 0 and avg_cost <= 0:
-                QMessageBox.warning(self, "警告", "有底仓时平均成本必须大于0")
+            if base_position > 0 and avg_cost < 0:
+                QMessageBox.warning(self, "警告", "有底仓时平均成本必须大于等于0")
                 return
             try:
                 xtdata.get_client()
@@ -261,7 +266,7 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             self.ui.exportButton.setEnabled(False)
             
             # 创建回测引擎
-            self.engine = BacktestEngine(stock_code, base_position, target_position, avg_cost, initial_capital=initial_capital)
+            self.engine = BacktestEngine(stock_code, base_position, can_use_position, target_position, avg_cost, initial_capital=initial_capital, period=period)
             self.engine.on_trade = self.on_trade  # 设置成交回调
             self.logger.info("开始回测")
             
