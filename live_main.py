@@ -77,9 +77,9 @@ def symbol2stock(symbol):
         
     symbol = symbol.zfill(6)
     
-    if symbol.startswith(('0', '3')):
+    if symbol.startswith(('0', '1', '3')):
         return f"{symbol}.SZ"  # 深交所
-    elif symbol.startswith('6'):
+    elif symbol.startswith(('5', '6')):
         return f"{symbol}.SH"  # 上交所
     elif symbol.startswith(('4', '8')):
         return f"{symbol}.BJ"  # 北交所
@@ -1370,9 +1370,18 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             stock_info_bj = stock_info_bj_name_code_df[['证券代码', '证券简称', '上市日期']].copy()
             # 使用 loc 设置数据类型
             stock_info_bj.loc[:, '证券代码'] = stock_info_bj['证券代码'].astype(str)
+
+            stock_info_jj_name_code_df = ak.fund_etf_spot_em()
+            stock_info_jj = stock_info_jj_name_code_df[['代码', '名称']].copy()
+            # 使用 loc 设置数据类型
+            stock_info_jj.loc[:, '代码'] = stock_info_jj['代码'].astype(str)
+            # 把代码列改为证券代码，把名称改为证券简称
+            stock_info_jj.rename(columns={'代码': '证券代码', '名称': '证券简称'}, inplace=True)
+            # 增加上市日期列，内容为空
+            stock_info_jj['上市日期'] = ''
             
             # 合并所有数据
-            self.all_a_stocks = pd.concat([stock_info_sh, stock_info_sz, stock_info_bj])
+            self.all_a_stocks = pd.concat([stock_info_sh, stock_info_sz, stock_info_bj, stock_info_jj])
             
             # 将所有股票信息写入CSV文件
             try:
@@ -1380,6 +1389,19 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 self.logger.info(f"已将股票信息写入文件: {csv_file}")
             except Exception as e:
                 self.logger.error(f"写入{csv_file}文件时出错: {e}")
+        
+        stock_info_jj_name_code_df = ak.fund_etf_category_sina()
+        #   代码         名称    最新价    涨跌额    涨跌幅     买入  ...     昨收     今开     最高     最低     成交量     成交额
+        #0  sz169201    浙商鼎盈LOF  1.470 -0.004 -0.271  1.428  ...  1.474  1.435  1.470  1.408    1085    1554
+        print(stock_info_jj_name_code_df)
+        # 保存到csv
+        stock_info_jj_name_code_df.to_csv('stock_info_jj_name_code.csv', index=False, encoding='utf-8')
+        # 先创建副本，然后选择需要的列
+        stock_info_jj = stock_info_jj_name_code_df[['代码', '名称']].copy()
+        # 使用 loc 设置数据类型
+        stock_info_jj.loc[:, '代码'] = stock_info_jj['代码'].astype(str)
+        print(stock_info_jj)
+    
 
     def get_latest_version(self):
         """通过GitHub API获取最新版本号"""
@@ -1489,7 +1511,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 在主窗口中间打开对话框，
         dialog = QDialog(self)
         dialog.setWindowTitle("设置参数")
-        dialog.setFixedSize(1000, 300)
+        dialog.setFixedSize(1000, 400)
         screen_center = self.geometry().center()
         dialog.move(screen_center - dialog.rect().center())
         layout = QVBoxLayout()
@@ -1530,7 +1552,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         start_date_label = QLabel("回测开始日期（从下拉框中选择，只能选最近一个月以内的）:")
         self.start_date_input = QDateEdit()
         #设置输入框的大小为10个字符
-        self.start_date_input.setFixedWidth(100)
+        self.start_date_input.setFixedWidth(120)
         #限制只能从日历中选择日期，不能输入日期
         self.start_date_input.setCalendarPopup(True)
 
@@ -1547,7 +1569,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         end_date_label = QLabel("回测结束日期（从下拉框中选择，只能选最近一个月以内的）:")
         self.end_date_input = QDateEdit()
         #设置输入框的大小为10个字符
-        self.end_date_input.setFixedWidth(100)
+        self.end_date_input.setFixedWidth(120)
         #限制只能从日历中选择日期，不能输入日期
         self.end_date_input.setCalendarPopup(True)
         end_date = self.end_date.toString("yyyy-MM-dd") if hasattr(self, 'end_date') else datetime.now().strftime('%Y-%m-%d')
