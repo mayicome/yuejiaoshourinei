@@ -162,6 +162,7 @@ class TradingThread(QThread):
                     'open_price': 0.0,
                     'market_value': 0.0
                 }
+                self.engine.positions[self.engine.stock_code] = pos
             self.logger.info(f"股票代码：{self.engine.stock_code}开始交易, 初始持仓：[持仓数量{pos['volume']},可用数量{pos['can_use_volume']},成本价{pos['open_price']},市值{round(pos['market_value'],1)}],目标仓位: {self.engine.target_position}，周期：{period}")
             
             # 如果已有seq属性，先取消订阅
@@ -217,7 +218,18 @@ class TradingThread(QThread):
         self.is_running = False
         if hasattr(self, 'seq'):
             xtdata.unsubscribe_quote(self.seq)
-        self.logger.info(f"股票代码：{self.engine.stock_code}停止交易，当前持仓: [持仓数量{self.engine.positions[self.engine.stock_code]['volume']},可用数量{self.engine.positions[self.engine.stock_code]['can_use_volume']},成本价{self.engine.positions[self.engine.stock_code]['open_price']},市值{self.engine.positions[self.engine.stock_code]['market_value']}],目标仓位: {self.engine.target_position}")
+
+        if self.engine.stock_code in self.engine.positions:
+            pos = self.engine.positions[self.engine.stock_code]
+        else:
+            pos = {
+                'volume': 0,
+                'can_use_volume': 0,
+                'open_price': 0.0,
+                'market_value': 0.0
+            }
+            self.engine.positions[self.engine.stock_code] = pos
+        self.logger.info(f"股票代码：{self.engine.stock_code}停止交易，当前持仓: [持仓数量{pos['volume']},可用数量{pos['can_use_volume']},成本价{pos['open_price']},市值{round(pos['market_value'],1)}],目标仓位: {self.engine.target_position}")
 
 # 创建一个新的线程类
 class InitTradingThread(QThread):
@@ -360,6 +372,8 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.logger = logging.getLogger('LiveTrade')
         self.logger.info("初始化主界面")
+
+        self.is_switching = False  # 添加标志位防止切换标签时递归
         
         # 初始化UI
         self.setupUi(self)
@@ -621,7 +635,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         self.pushButton.clicked.connect(self.on_button_clicked)
         self.pushButton_2.clicked.connect(self.on_button_2_clicked)
         self.pushButton_3.clicked.connect(self.on_button_3_clicked)
-        #self.tab_2.itemSelectionChanged.connect(self.on_stock_selected)
         # 点击tab_2时，触发on_stock_selected
         self.tabWidget.currentChanged.connect(self.on_tab_changed)
 
@@ -904,8 +917,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
 
     def add_stock(self):
         """添加单支股票"""
-        self.logger.info("添加单支股票")
-        
         # 创建自定义对话框
         dialog = QDialog(self)
         dialog.setWindowTitle("添加股票")
@@ -944,6 +955,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             dialog.accept()
             
         def on_cancel_clicked():
+            self.tabWidget.setCurrentIndex(0)
             dialog.reject()
         
         ok_button.clicked.connect(on_ok_clicked)
@@ -960,31 +972,22 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
             # 更新UI显示
             self.update_positions_table()
-            
-            QMessageBox.information(self, "成功", f"已添加股票 {stock_code}")
-        else:
-            self.logger.info("取消添加股票")
-
-    '''def update_stock_display(self, stock_code):
-        """更新股票显示"""
-        # 清空原有持仓显示
-        self.tableWidget_2.setRowCount(0)
-        
-        # 添加新股票信息
-        row_position = self.tableWidget_2.rowCount()
-        self.tableWidget_2.insertRow(row_position)
-        
-        # 获取股票名称
-        stock_name = self.get_stock_name(stock_code)
-        
-        # 填充数据
-        self.tableWidget_2.setItem(row_position, 0, QTableWidgetItem(stock_code))
-        self.tableWidget_2.setItem(row_position, 1, QTableWidgetItem(stock_name))
-        self.tableWidget_2.setItem(row_position, 2, QTableWidgetItem("0"))  # 初始持仓数量'''
 
     def on_tab_changed(self):
-        """处理按钮点击事件"""
+        """处理标签点击事件"""
         index = self.tabWidget.currentIndex()
+        if self.trading_thread:
+            if self.is_switching:
+                return
+        
+            message = QMessageBox.information(self, "提示", "请先中止交易再切换标签页")
+            self.is_switching = True
+            if index == 1:
+                self.tabWidget.setCurrentIndex(0)
+            elif index == 0:
+                self.tabWidget.setCurrentIndex(1)
+            self.is_switching = False
+            return
         if index == 0:
             self.current_table = self.tableWidget_2
             if self.tableWidget_2.rowCount() == 0:                
@@ -993,6 +996,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 self.engine.stock_code = self.tableWidget_2.item(0, 0).text()
         elif index == 1:  
             self.current_table = self.tableWidget_3
+            self.engine.stock_code = None
             self.add_stock()
         # 根据当前标签页更新表格数据（如果需要）
         self.update_positions_table()
@@ -1212,7 +1216,16 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             if self.trading_thread:
                 # 只显示当前交易股票或占位记录
                 self.current_table.setRowCount(1)
-                pos = positions[self.engine.stock_code]
+                # 如果当前交易股票在positions中，则显示，否则显示占位记录
+                if self.engine.stock_code in positions:
+                    pos = positions[self.engine.stock_code]
+                else:
+                    pos = {
+                        'volume': 0,
+                        'can_use_volume': 0,
+                        'open_price': 0.0,
+                        'market_value': 0.0
+                    }
                 stock_code = self.engine.stock_code
                 row = 0
             else:
@@ -1389,19 +1402,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 self.logger.info(f"已将股票信息写入文件: {csv_file}")
             except Exception as e:
                 self.logger.error(f"写入{csv_file}文件时出错: {e}")
-        
-        stock_info_jj_name_code_df = ak.fund_etf_category_sina()
-        #   代码         名称    最新价    涨跌额    涨跌幅     买入  ...     昨收     今开     最高     最低     成交量     成交额
-        #0  sz169201    浙商鼎盈LOF  1.470 -0.004 -0.271  1.428  ...  1.474  1.435  1.470  1.408    1085    1554
-        print(stock_info_jj_name_code_df)
-        # 保存到csv
-        stock_info_jj_name_code_df.to_csv('stock_info_jj_name_code.csv', index=False, encoding='utf-8')
-        # 先创建副本，然后选择需要的列
-        stock_info_jj = stock_info_jj_name_code_df[['代码', '名称']].copy()
-        # 使用 loc 设置数据类型
-        stock_info_jj.loc[:, '代码'] = stock_info_jj['代码'].astype(str)
-        print(stock_info_jj)
-    
 
     def get_latest_version(self):
         """通过GitHub API获取最新版本号"""
