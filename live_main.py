@@ -1059,6 +1059,11 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 QMessageBox.warning(self, "警告", "无法获取目标仓位！")
                 return
             
+            if self.lineEdit_3.text() == "":
+                self.trade_size = 100
+            else:
+                self.trade_size = int(self.lineEdit_3.text())
+            
             if self.radioButton.isChecked():
                 self.threshold = float(self.lineEdit.text())
                 strategy_type = "adaptive_limit"
@@ -1078,12 +1083,12 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 strategy = AdaptiveLimitStrategy(
                     self.engine, 
                     threshold=self.threshold, 
-                    trade_size=100, 
+                    trade_size=self.trade_size, 
                     min_trade_amount=self.min_trade_amount, 
                     max_trade_times=self.max_trade_times, 
                     logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
                 )
-                self.logger.info(f"使用浮动限价策略，波动阈值为{self.threshold},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times}")
+                self.logger.info(f"使用浮动限价策略，波动阈值为{self.threshold},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times},最小交易数量为{self.trade_size}")
             elif strategy_type == "order_book":
                 strategy = OrderBookStrategy(
                     self.engine, 
@@ -1093,7 +1098,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                     max_trade_times=self.max_trade_times, 
                     logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
                 )
-                self.logger.info(f"使用盘口动量增强策略，买一档成交量阈值为{500},卖一档成交量阈值为{300},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times}")
+                self.logger.info(f"使用盘口动量增强策略，买一档成交量阈值为{500},卖一档成交量阈值为{300},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times},最小交易数量为{self.trade_size}")
             '''elif strategy_type == "event_driven":
                 strategy = EventDrivenStrategy(
                     self.engine, 
