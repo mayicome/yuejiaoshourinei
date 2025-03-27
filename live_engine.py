@@ -265,7 +265,10 @@ class LiveEngine(TradeEngine):
             return None
         
         # 确保符合最小报价单位
-        return round(round(price / tick_size) * tick_size, 2)
+        if base_slippage == 0.001:
+            return round(round(price / 0.001) * 0.001, 3)
+        else:
+            return round(round(price / 0.01) * 0.01, 2)
 
     def calculate_order_price(self, stock_code, direction):
         """获取实时定价"""
@@ -443,10 +446,10 @@ class LiveEngine(TradeEngine):
         for stock_code in tick_data:
             if stock_code == self.stock_code:
                 tick_data = tick_data[stock_code][0]
-                current_price = tick_data['lastPrice']
+                current_price = float(tick_data['lastPrice'])
                 self.strategy.on_tick(tick_data)
                 break
-        if stock_code.startswith('1') or stock_code.startswith('5'):
+        if self.stock_code.startswith('1') or self.stock_code.startswith('5'):
             current_price = round(current_price, 3)
         else:
             current_price = round(current_price, 2)        
