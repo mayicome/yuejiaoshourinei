@@ -240,10 +240,8 @@ class LiveEngine(TradeEngine):
         self.strategy = strategy
         #self.logger.info(f"设置策略: {strategy.__class__.__name__}")
 
-    def smart_order_price(self, direction, best_bid, best_ask):
-        """改进后的智能定价策略（固定1分钱+动态调整）"""
-        tick_size = 0.01  # A股最小价格变动单位
-        
+    def smart_order_price(self, direction, best_bid, best_ask, tick_size):
+        """改进后的智能定价策略（固定1分钱+动态调整）"""        
         # 基础滑点设置
         base_slippage = tick_size  # 固定1分钱
         
@@ -269,12 +267,16 @@ class LiveEngine(TradeEngine):
         # 确保符合最小报价单位
         return round(round(price / tick_size) * tick_size, 2)
 
-    def calculate_order_price(self, stock_code, direction ):
+    def calculate_order_price(self, stock_code, direction):
         """获取实时定价"""
         # 获取最新五档行情
+        if stock_code.startswith('1') or stock_code.startswith('5'):
+            tick_size = 0.001
+        else:
+            tick_size = 0.01
         best_bid = self.bidPrices[0]  # 买一价
         best_ask = self.askPrices[0]  # 卖一价
-        ret = self.smart_order_price(direction, best_bid, best_ask)
+        ret = self.smart_order_price(direction, best_bid, best_ask, tick_size)
         direction_str = "买入" if direction == 'buy' else "卖出"
         self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid}，最新卖价：{best_ask}，智能定价：{ret}")        
         return ret
@@ -443,6 +445,11 @@ class LiveEngine(TradeEngine):
                 tick_data = tick_data[stock_code][0]
                 current_price = tick_data['lastPrice']
                 self.strategy.on_tick(tick_data)
+                break
+        if stock_code.startswith('1') or stock_code.startswith('5'):
+            current_price = round(current_price, 3)
+        else:
+            current_price = round(current_price, 2)        
         message = f"最新价：{current_price}"
         self.signals.status.emit(message)
 
