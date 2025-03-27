@@ -564,9 +564,9 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
     def receive_message(self, message):
         """接收消息"""
         # 更新最后心跳时间
-        if message == "交易中。。。":
+        if "最新价" in message:
             self.last_trading_heartbeat = time.time()
-            self.statusbar.showMessage("交易中。。。", 2500)
+            self.statusbar.showMessage(message, 2500)
         elif message == "账户连接状态：正常":
             self.statusbar.showMessage(message)
             if not self.update_timer.isActive():

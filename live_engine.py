@@ -440,9 +440,11 @@ class LiveEngine(TradeEngine):
             
         for stock_code in tick_data:
             if stock_code == self.stock_code:
-                self.strategy.on_tick(tick_data[stock_code][0])
-
-        self.signals.status.emit("交易中。。。")
+                tick_data = tick_data[stock_code][0]
+                current_price = tick_data['lastPrice']
+                self.strategy.on_tick(tick_data)
+        message = f"最新价：{current_price}"
+        self.signals.status.emit(message)
 
     def on_order(self, order_data):
         """

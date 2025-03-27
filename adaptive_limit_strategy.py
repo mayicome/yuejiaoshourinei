@@ -341,12 +341,20 @@ class AdaptiveLimitStrategy(StrategyBase):
             self.logger.error(f"股票代码: {stock_code}, 基准价异常={base_price}！")
             return 10000, 0
         
-        buy_point = round(base_price * (1 - threshold), 2)
-        sell_point = round(base_price * (1 + threshold), 2)
-        if buy_point == base_price:
-            buy_point -= 0.01
-        if sell_point == base_price:
-            sell_point += 0.01
+        if stock_code.startswith('1') or stock_code.startswith('5'):
+            buy_point = round(base_price * (1 - threshold), 3)
+            sell_point = round(base_price * (1 + threshold), 3)
+            if buy_point == base_price:
+                buy_point -= 0.001
+            if sell_point == base_price:
+                sell_point += 0.001
+        else:
+            buy_point = round(base_price * (1 - threshold), 2)
+            sell_point = round(base_price * (1 + threshold), 2)
+            if buy_point == base_price:
+                buy_point -= 0.01
+            if sell_point == base_price:
+                sell_point += 0.01
 
         # 避免重复写logger（如果base_price和threshold都与上一次相同，则不写logger）
         if hasattr(self, 'last_threshold') and hasattr(self, 'last_base_price'):
