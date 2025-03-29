@@ -86,7 +86,7 @@
         </item>
        </layout>
       </widget>
-      <widget class="QWidget" name="">
+      <widget class="QWidget" name="layoutWidget">
        <layout class="QVBoxLayout" name="verticalLayout_6">
         <item>
          <layout class="QHBoxLayout" name="horizontalLayout_5">
@@ -110,7 +110,7 @@
           <item>
            <widget class="QLabel" name="label_2">
             <property name="text">
-             <string>每笔交易股数（如不填将从设置参数中算出）：</string>
+             <string>每笔交易股数（如不填将从设置的每笔交易最少金额中算出）：</string>
             </property>
            </widget>
           </item>

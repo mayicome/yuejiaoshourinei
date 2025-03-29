@@ -181,7 +181,9 @@ def read_param_grid(param_file):
             #将param_grid['threshold']列表内的每个元素转换成浮点数
             param_grid['threshold'] = [float(x) for x in param_grid['threshold']]
 
-            print(f"参数网格: {param_grid}")
+            min_trade_amount = int(config.get('setting', 'min_trade_amount'))
+
+            print(f"参数网格: {param_grid},最小交易金额: {min_trade_amount}")
         except Exception as e:
             print(f"读取参数文件失败: {str(e)}")
     else:
@@ -189,7 +191,7 @@ def read_param_grid(param_file):
             'threshold': [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 1],
             'trade_size': [100]
         }
-    return param_grid
+    return param_grid, min_trade_amount
 
 def batch_optimize(input_file=None, param_file=None, output_dir=None, progress_callback=None):
     """批量优化处理函数，支持自定义输入和输出路径"""
@@ -209,7 +211,7 @@ def batch_optimize(input_file=None, param_file=None, output_dir=None, progress_c
     #读取股票列表
     stocks = read_stocks(input_file)
     #读取参数文件
-    param_grid = read_param_grid(param_file)
+    param_grid, min_trade_amount = read_param_grid(param_file)
     
     start_time = time.time()
     success_count = 0
@@ -223,6 +225,7 @@ def batch_optimize(input_file=None, param_file=None, output_dir=None, progress_c
                 process_stock, 
                 row.to_dict(),
                 param_grid,
+                min_trade_amount,
                 progress_callback
             )
             futures[future] = row['symbol']
@@ -289,8 +292,8 @@ def batch_optimize_single_process(input_file, param_file, output_dir, progress_c
     row = stocks.iloc[0]
     
     #读取参数文件
-    param_grid = read_param_grid(param_file)
-
+    param_grid, min_trade_amount = read_param_grid(param_file)
+    
     # 单线程处理每只股票
     if True:
         symbol = row['symbol']
@@ -308,7 +311,7 @@ def batch_optimize_single_process(input_file, param_file, output_dir, progress_c
             }
         try:
             from optimization_runner import run_optimization
-            results = run_optimization(config, param_grid,progress_callback)
+            results = run_optimization(config, param_grid,min_trade_amount,progress_callback)
             # 修改results的列名为中文
             results.columns = ['波动阈值', '夏普比率', '总收益', '最大回撤', '回撤波峰时间', '回撤波谷时间', '胜率', '总交易天数', '最小交易次数', '最大交易次数', '总交易次数', '平均每日交易次数', '是否最佳']
             # 先确保第一列的值为字符串类型

@@ -449,11 +449,7 @@ class LiveEngine(TradeEngine):
                 current_price = float(tick_data['lastPrice'])
                 self.strategy.on_tick(tick_data)
                 break
-        if self.stock_code.startswith('1') or self.stock_code.startswith('5'):
-            current_price = round(current_price, 3)
-        else:
-            current_price = round(current_price, 2)        
-        message = f"最新价：{current_price}"
+        message = f"最新价：{current_price:.3f}" if self.stock_code.startswith(('1', '5')) else f"最新价：{current_price:.2f}"
         self.signals.status.emit(message)
 
     def on_order(self, order_data):

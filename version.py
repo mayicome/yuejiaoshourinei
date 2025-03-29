@@ -1,4 +1,4 @@
-VERSION = "v1.0.8"
+VERSION = "v1.0.9"
 
 def get_version():
     return VERSION
@@ -15,6 +15,5 @@ def show_version_info():
 版本号: {VERSION}
 发布日期: 2025-03-24
 主要功能:
-- 增加ETF的金额为小数点后3位
-- 更改交易中为最新价
+- 修改回测算法以支持ETF
 """ 

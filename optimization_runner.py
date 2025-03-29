@@ -58,7 +58,7 @@ def setup_logger():
     
     return logger
 
-def run_optimization(data_config, param_grid,progress_callback=None):
+def run_optimization(data_config, param_grid,min_trade_amount,progress_callback=None):
     """执行单个优化任务"""
     # 加载数据
     data = {
@@ -78,7 +78,7 @@ def run_optimization(data_config, param_grid,progress_callback=None):
     # 显示开始处理
     if progress_callback:
         progress_callback(0, len(param_grid['threshold']))
-    results_df = optimizer.optimize(data, AdaptiveLimitStrategy, progress_callback=progress_callback)
+    results_df = optimizer.optimize(data, AdaptiveLimitStrategy, min_trade_amount, metric='sharpe_ratio', progress_callback=progress_callback)
     
     return results_df
 

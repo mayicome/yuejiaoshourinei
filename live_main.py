@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QIntValidator, QRegExpValidator, QDoubleValidator, QColor, QTextCursor
 from PyQt5.QtCore import (
     QTimer, QThread, QMetaObject, Q_ARG, pyqtSlot, pyqtSignal,
-    Qt, QRegExp
+    Qt, QRegExp, QMetaType
 )
 import xtquant.xttrader as xttrader
 from live_ui import Ui_MainWindow
@@ -43,7 +43,7 @@ import os
 import pandas as pd
 import akshare as ak
 from PyQt5.QtGui import QColor
-from PyQt5.QtCore import QEvent, QObject, pyqtSignal
+from PyQt5.QtCore import QEvent, QObject, pyqtSignal, QMetaType
 import io
 import configparser
 import chardet
@@ -58,6 +58,7 @@ import subprocess
 import threading
 import queue
 from pathlib import Path
+import ast
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 xtdata.enable_hello = False
@@ -553,11 +554,9 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 检查setting部分是否存在
         if 'setting' not in config:
             self.min_trade_amount = 10000
-            self.max_trade_times = 5
             self.param_grid = None
         else:
             self.min_trade_amount = int(config.get('setting', 'min_trade_amount'))
-            self.max_trade_times = int(config.get('setting', 'max_trade_times'))
             param_grid = config.get('setting', 'param_grid')
             self.param_grid = eval(param_grid)
 
@@ -785,6 +784,46 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         param_file = os.path.join(os.path.dirname(__file__), 'config.ini')
         output_dir = os.path.join(os.path.dirname(__file__), 'data')
         
+        # 把选择的最少交易数量写入config中
+        # 先从config中读取param_grid
+        # 打开并读取现有配置文件
+        config = configparser.ConfigParser()        # 检测文件编码
+        with open(param_file, 'rb') as f:
+            content = f.read()
+            encoding = chardet.detect(content)['encoding']
+        
+        # 读取现有配置
+        with open(param_file, 'r', encoding=encoding) as f:
+            config.read_file(f)
+
+        if not config.has_section('setting'):
+            config.add_section('setting')
+            param_grid = {}  # 初始化为空字典
+        else:
+            # 安全读取param_grid
+            try:
+                param_grid_str = config.get('setting', 'param_grid', fallback='{}')
+                param_grid = ast.literal_eval(param_grid_str)  # 使用更安全的解析方式
+            except (SyntaxError, ValueError) as e:
+                self.logger.error(f"解析param_grid失败: {str(e)}")
+                param_grid = {}
+        
+        # 处理交易数量输入
+        trade_size = self.lineEdit_3.text()
+        if not trade_size.isdigit():
+            trade_size = 100
+        trade_size = int(trade_size)
+        
+        # 更新参数网格
+        param_grid['trade_size'] = [trade_size]  # 保持为列表形式
+
+        # 写入配置时转换为字符串
+        config['setting']['param_grid'] = str(param_grid)
+
+        # 保存配置
+        with open(param_file, 'w', encoding=encoding) as f:
+            config.write(f)
+        
         try:
             # 创建进度对话框
             self.progress_window = QDialog(self)
@@ -828,10 +867,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             
             # 设置进度条为0
             self.progress_count = 0
-            
-            # 使用类方法作为回调
-            self.optimization_thread = OptimizationThread(file_path, param_file, output_dir, self.optimization_progress_callback)
-            self.optimization_thread.finished.connect(self.on_optimization_finished)
             
             # 显示提示信息
             self.status_label.setText("正在启动回测任务，请耐心等待...")
@@ -1085,20 +1120,17 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                     threshold=self.threshold, 
                     trade_size=self.trade_size, 
                     min_trade_amount=self.min_trade_amount, 
-                    max_trade_times=self.max_trade_times, 
                     logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
                 )
-                self.logger.info(f"使用浮动限价策略，波动阈值为{self.threshold},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times},最小交易数量为{self.trade_size}")
             elif strategy_type == "order_book":
                 strategy = OrderBookStrategy(
                     self.engine, 
                     bid_vol_threshold=500, 
                     ask_vol_threshold=300, 
                     min_trade_amount=self.min_trade_amount, 
-                    max_trade_times=self.max_trade_times, 
                     logger=logging.getLogger('LiveTrade')  # 使用主程序的logger
                 )
-                self.logger.info(f"使用盘口动量增强策略，买一档成交量阈值为{500},卖一档成交量阈值为{300},最小交易金额为{self.min_trade_amount},最大交易次数为{self.max_trade_times},最小交易数量为{self.trade_size}")
+                self.logger.info(f"使用盘口动量增强策略，买一档成交量阈值为{500},卖一档成交量阈值为{300},最小交易金额为{self.min_trade_amount},最小交易数量为{self.trade_size}")
             '''elif strategy_type == "event_driven":
                 strategy = EventDrivenStrategy(
                     self.engine, 
@@ -1358,7 +1390,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             if file_mtime.date() == today:
                 try:
                     self.all_a_stocks = pd.read_csv(csv_file, dtype={'证券代码': str})
-                    self.logger.info(f"已从{csv_file}文件读取全A股股票名称信息")
+                    self.logger.info(f"已从{csv_file}文件读取全A股股票和基金名称信息")
                     return
                 except Exception as e:
                     self.logger.error(f"读取{csv_file}文件时出错: {e}")
@@ -1522,7 +1554,7 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         layout = QVBoxLayout()
         
         # 每笔交易最少金额
-        min_trade_amount_label = QLabel("每笔交易最少金额:")
+        min_trade_amount_label = QLabel("每笔交易最少金额（单位：元）:（特殊情况如卖出时可用持仓不足该金额，会根据可用持仓计算交易数量）")
         self.min_trade_amount_input = QLineEdit()
         #设置输入框的大小为10个字符
         self.min_trade_amount_input.setFixedWidth(100)
@@ -1531,18 +1563,8 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         layout.addWidget(min_trade_amount_label)
         layout.addWidget(self.min_trade_amount_input)
         
-        # 每天最多交易次数
-        max_trade_times_label = QLabel("每天最多交易次数:")
-        self.max_trade_times_input = QLineEdit()
-        #设置输入框的大小为10个字符
-        self.max_trade_times_input.setFixedWidth(100)
-        self.max_trade_times_input.setValidator(QIntValidator())
-        self.max_trade_times_input.setText(str(self.max_trade_times))
-        layout.addWidget(max_trade_times_label)
-        layout.addWidget(self.max_trade_times_input)    
-
-        # 参数网格
-        thresholds_label = QLabel("波动阈值:")
+        # 回测时使用的波动阈值
+        thresholds_label = QLabel("回测时使用的波动阈值:")
         self.thresholds_input = QLineEdit()
         #设置输入框的大小为10个字符
         self.thresholds_input.setFixedWidth(980)
@@ -1605,15 +1627,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             self.start_date = start_date
             self.end_date = end_date
             print(f"回测开始日期: {self.start_date}, 回测结束日期: {self.end_date}")
-            min_trade_amount = self.min_trade_amount_input.text()
-            max_trade_times = self.max_trade_times_input.text()
-            self.min_trade_amount = int(min_trade_amount)
-            self.max_trade_times = int(max_trade_times)
+            min_trade_amount = int(self.min_trade_amount_input.text())
+            self.min_trade_amount = min_trade_amount
             thresholds = self.thresholds_input.text()
             self.param_grid = {}
             self.param_grid['threshold'] = thresholds
             self.param_grid['trade_size'] = '[100]' #此处的trade_size不需要改变，只是为了程序能支持多个参数的组合才保留下来
-            self.logger.info(f"每笔交易最少金额: {self.min_trade_amount}, 每天最多交易次数: {self.max_trade_times}, 波动阈值: {thresholds}")
+            self.logger.info(f"每笔交易最少金额: {self.min_trade_amount},波动阈值: {thresholds}")
             # 打开并读取现有配置文件
             config = configparser.ConfigParser()
             config_path = 'config.ini'
@@ -1632,7 +1652,6 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
                 config.add_section('setting')
             
             config.set('setting', 'min_trade_amount', str(self.min_trade_amount))
-            config.set('setting', 'max_trade_times', str(self.max_trade_times))
             print(self.param_grid)
             config.set('setting', 'param_grid', str(self.param_grid))
 
@@ -1758,7 +1777,8 @@ if __name__ == "__main__":
     # 遍历所有进程
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            # 获取进程信息
+            # 
+            
             proc_info = proc.info
             
             # 如果是Python进程且运行的是当前脚本

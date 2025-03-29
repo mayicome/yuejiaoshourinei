@@ -32,7 +32,7 @@ class GridSearchOptimizer:
         values = self.param_grid.values()
         return [dict(zip(keys, combo)) for combo in itertools.product(*values)]
     
-    def optimize(self, data_source, strategy_class, metric='sharpe_ratio', progress_callback=None):
+    def optimize(self, data_source, strategy_class, min_trade_amount, metric='sharpe_ratio', progress_callback=None):
         """
         data_source: 统一数据接口
         strategy_class: 策略类（需符合引擎接口）
@@ -69,7 +69,7 @@ class GridSearchOptimizer:
             new_engine.data = base_data.copy(deep=True)  # 创建独立副本
             
             # 确保策略初始化不会修改数据
-            strategy = strategy_class(new_engine, **params)
+            strategy = strategy_class(new_engine, min_trade_amount = min_trade_amount, **params)
             new_engine.set_strategy(strategy)
             
             # 执行回测

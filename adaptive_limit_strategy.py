@@ -18,7 +18,7 @@ class AdaptiveLimitStrategy(StrategyBase):
         trade_size (int): 每次交易数量
     """
     
-    def __init__(self, engine, threshold=0.005, trade_size=100, min_trade_amount=10000, max_trade_times=5, logger=None):
+    def __init__(self, engine, threshold=0.005, trade_size=100, min_trade_amount=10000, logger=None):
         """
         初始化浮动限价策略
         
@@ -33,7 +33,6 @@ class AdaptiveLimitStrategy(StrategyBase):
         self.initial_threshold_everyday = threshold
         self.trade_size = trade_size
         self.min_trade_amount = min_trade_amount
-        self.max_trade_times = max_trade_times
         
         # 使用传入的logger或创建新的logger
         self.logger = logger or logging.getLogger('LiveTrade')
@@ -45,6 +44,8 @@ class AdaptiveLimitStrategy(StrategyBase):
         }
         self.buy_point = None
         self.sell_point = None
+
+        self.logger.info(f"股票代码: {self.engine.stock_code}, 浮动限价策略初始化，阈值={self.threshold}, 最小交易数量={self.trade_size}, 最小交易金额={self.min_trade_amount}")
                 
     def on_bar(self, bar_data):
         """
@@ -92,18 +93,14 @@ class AdaptiveLimitStrategy(StrategyBase):
 
             if current_date != self.daily_stats['date']:
                 #每笔交易不少于min_trade_amount元（基于当前价格初略计算）
-                min_trade_size1 = math.ceil(self.min_trade_amount / current_price / 100) * 100
-                #总持仓在max_trade_times笔交易内完成清仓（基于程序启动后的总持仓）
-                min_trade_size2 = math.ceil(current_can_use_volume/self.max_trade_times / 100) * 100
-                #总持仓在max_trade_times笔交易内完成建仓（基于目标仓位，当可用持仓较少时有用）
-                min_trade_size3 = math.ceil(target_position/self.max_trade_times / 100) * 100
+                min_trade_size1 = math.ceil(self.min_trade_amount / current_price / 100) * 100                
                                 
                 #计算单笔交易的数量
-                self.trade_size = int(max(min_trade_size1, min_trade_size2, min_trade_size3, self.trade_size))
+                self.calculated_trade_size = int(max(min_trade_size1, self.trade_size))
 
                 self.logger.info(
                     f"股票代码: {stock_code}, "
-                    f"调整交易数量至 {self.trade_size} 股以满足单次交易资金不小于{self.min_trade_amount}元及总交易次数不大于{self.max_trade_times}次的要求"
+                    f"调整交易数量至 {self.calculated_trade_size} 股以满足单次交易资金不小于{self.min_trade_amount}元及单次交易数量不小于{self.trade_size}股的要求"
                 )
 
                 self.daily_stats = {
@@ -117,7 +114,7 @@ class AdaptiveLimitStrategy(StrategyBase):
                     f"初始仓位: {self.daily_stats['initial_position']}, "
                     f"初始成本: {self.daily_stats['initial_cost']}, "
                     f"目标仓位: {target_position}, "
-                    f"当前价格: {current_price}"
+                    f"当前价格：{current_price:.3f}" if stock_code.startswith(('1', '5')) else f"当前价格：{current_price:.2f}"
                 )
 
                 self.threshold = self.initial_threshold_everyday
@@ -198,8 +195,8 @@ class AdaptiveLimitStrategy(StrategyBase):
                     delattr(self, 'last_low_position_sell')
 
             # 计算卖出数量
-            sell_volume = min(self.trade_size, current_can_use_volume)
-            if current_can_use_volume < self.trade_size * 1.5:
+            sell_volume = min(self.calculated_trade_size, current_can_use_volume)
+            if current_can_use_volume < self.calculated_trade_size * 1.5:
                 sell_volume = int(current_can_use_volume / 100) * 100
 
             #仓位控制
@@ -222,7 +219,8 @@ class AdaptiveLimitStrategy(StrategyBase):
                 if bidPrices[0] < current_price*0.90:
                     self.logger.warning(
                         f"股票代码: {stock_code}, "
-                        f"卖出委托风险控制: 当前价格={current_price:.2f}, 卖出数量={sell_volume}, 买1价={bidPrices[0]:.2f}<=最新价{current_price}*0.90, 中止市价卖出"
+                        f"卖出委托风险控制: 最新价={current_price:.2f}," if stock_code.startswith(('1', '5')) else f"卖出委托风险控制: 最新价={current_price:.3f},"
+                        f"卖出数量={sell_volume}, 买1价={bidPrices[0]:.2f}<=最新价*0.90, 中止市价卖出"
                     )
                     return
 
@@ -250,8 +248,8 @@ class AdaptiveLimitStrategy(StrategyBase):
                     delattr(self, 'last_position_limit_buy')
 
             # 计算买入数量
-            buy_volume = min(self.trade_size, position_limit - current_volume)
-            #if position_limit - current_volume < self.trade_size * 1.5:
+            buy_volume = min(self.calculated_trade_size, position_limit - current_volume)
+            #if position_limit - current_volume < self.calculated_trade_size * 1.5:
             #    buy_volume = position_limit - current_volume
 
             account_status = self.get_account_status()
@@ -278,7 +276,9 @@ class AdaptiveLimitStrategy(StrategyBase):
                 if askPrices[0] < current_price:
                     self.logger.warning(
                         f"股票代码: {stock_code}, "
-                        f"买入委托风险控制: 买入数量={buy_volume}, 卖1价={askPrices[0]:.2f}<当前价={current_price:.2f}, 中止市价买入"
+                        f"买入委托风险控制: 买入数量={buy_volume}, 卖1价={askPrices[0]:.3f}<"
+                        f"当前价={current_price:.3f}, " if stock_code.startswith(('1', '5')) else f"当前价={current_price:.2f}, "
+                        f"中止市价买入"
                     )
                     return
                 # 流动性多维评估
@@ -286,7 +286,8 @@ class AdaptiveLimitStrategy(StrategyBase):
                 if depth_liquidity < buy_volume * 2:
                     self.logger.warning(
                         f"股票代码: {stock_code}, "
-                        f"买入委托风险控制: 当前价格={current_price:.2f}, 五档卖盘总量={depth_liquidity} < 买入数量={buy_volume} * 2, 中止市价买入"
+                        f"买入委托风险控制: 最新价={current_price:.3f}," if stock_code.startswith(('1', '5')) else f"买入委托风险控制: 最新价={current_price:.2f},"
+                        f"五档卖盘总量={depth_liquidity} < 买入数量={buy_volume} * 2, 中止市价买入"
                     )
                     return
                 '''# 波动率自适应检查
@@ -310,7 +311,8 @@ class AdaptiveLimitStrategy(StrategyBase):
             if success:
                 self.logger.info(
                     f"股票代码: {stock_code}, "
-                    f"买入委托成功: 当前价格={current_price:.2f}, 买点={buy_point:.2f}, 卖一价={askPrices[0]:.2f}，买入数量={buy_volume}"
+                    f"买入委托成功: 当前价格={current_price:.2f}," if stock_code.startswith(('1', '5')) else f"买入委托成功: 最新价={current_price:.3f},"
+                    f"买点={buy_point:.2f}, 卖一价={askPrices[0]:.2f}，买入数量={buy_volume}"
                 )                
                 self.buy_point, self.sell_point = self.calculate_trade_points(stock_code, current_price, self.threshold)
             
@@ -359,9 +361,14 @@ class AdaptiveLimitStrategy(StrategyBase):
         # 避免重复写logger（如果base_price和threshold都与上一次相同，则不写logger）
         if hasattr(self, 'last_threshold') and hasattr(self, 'last_base_price'):
             if self.last_base_price != base_price or self.last_threshold != threshold:
-                self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，基准价={base_price}，买入点={buy_point}，卖出点={sell_point}")
+                self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，"
+                                 f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
+                                 f"买入点={buy_point}，卖出点={sell_point}"
+                                 )
         else:
-            self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，基准价={base_price}，买入点={buy_point}，卖出点={sell_point}")
+            self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，"
+                             f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
+                             f"买入点={buy_point}，卖出点={sell_point}")
                 
         self.last_base_price = base_price
         self.last_threshold = threshold

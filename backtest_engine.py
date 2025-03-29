@@ -23,9 +23,9 @@ def symbol2stock(symbol):
         
     symbol = symbol.zfill(6)
     
-    if symbol.startswith(('0', '3')):
+    if symbol.startswith(('0', '1', '3')):
         return f"{symbol}.SZ"  # 深交所
-    elif symbol.startswith('6'):
+    elif symbol.startswith(('5', '6')):
         return f"{symbol}.SH"  # 上交所
     elif symbol.startswith(('4', '8')):
         return f"{symbol}.BJ"  # 北交所

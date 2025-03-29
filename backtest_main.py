@@ -19,6 +19,7 @@ import logging
 import os
 from PyQt5.QtWidgets import QAction
 from param_optimizer import GridSearchOptimizer
+from PyQt5.QtCore import Qt
 
 # 在程序开始时忽略特定警告
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -28,9 +29,9 @@ xtdata.enable_hello = False
 
 #将股票代码转换为QMT识别的格式
 def symbol2stock(symbol):
-    if symbol.startswith("0") or symbol.startswith("3"):
+    if symbol.startswith("0") or symbol.startswith("1") or symbol.startswith("3"):
         stock = symbol+".SZ"
-    elif symbol.startswith("6"):
+    elif symbol.startswith("5") or symbol.startswith("6"):
         stock = symbol+".SH"
     else:
         stock = symbol+".BJ"
@@ -92,13 +93,14 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
         
     def init_ui(self):
         """初始化用户界面"""
-        try:
+        #try:
+        if True:
             # 设置日期范围
             # 设置起始日期为昨天
             thedaybeforeyesterday = QDate.currentDate().addDays(-30)
             self.ui.dateEdit.setDate(thedaybeforeyesterday)
-            yesterday = QDate.currentDate().addDays(-1)
-            self.ui.dateEdit_2.setDate(yesterday)
+            today = QDate.currentDate()
+            self.ui.dateEdit_2.setDate(today)
             
             # 设置策略选择下拉框
             self.ui.comboBox.addItem("浮动限价策略", "adaptive_limit")
@@ -138,17 +140,17 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             help_menu.addAction(version_action)
             
             # 添加参数优化标签页
-            self.add_optimization_tab()
+            '''self.add_optimization_tab()
             
             # 确保表格可以铺满整个区域
             self.ui.tableWidget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, 
                                              QtWidgets.QSizePolicy.Expanding)
             
             # 设置表格的最小尺寸
-            self.ui.tableWidget.setMinimumWidth(self.width() * 0.9)  # 至少占窗口90%宽度
+            self.ui.tableWidget.setMinimumWidth(int(self.width() * 0.9))  # 至少占窗口90%宽度
             
             # 禁用自动滚动条显示，强制铺满
-            self.ui.tableWidget.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            self.ui.tableWidget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
             
             # 修改表格所在的父容器布局属性
             parent_widget = self.ui.tableWidget.parent()
@@ -161,10 +163,10 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
                 parent_layout = parent_widget.layout()
                 if parent_layout:
                     parent_layout.setContentsMargins(0, 0, 0, 0)
-                    parent_layout.setSpacing(0)
+                    parent_layout.setSpacing(0)'''
             
-        except Exception as e:
-            self.logger.error(f"界面初始化失败: {str(e)}")
+        #except Exception as e:
+        #    self.logger.error(f"界面初始化失败: {str(e)}")
 
     def setup_trade_table(self):
         '''# 设置交易记录表格
@@ -191,7 +193,7 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
         total_width = self.ui.tableWidget.width() - self.ui.tableWidget.columnWidth(0)
         num_columns = self.ui.tableWidget.columnCount() - 1
         for i in range(1, num_columns + 1):
-            self.ui.tableWidget.setColumnWidth(i, total_width / num_columns)
+            self.ui.tableWidget.setColumnWidth(i, int(total_width / num_columns))
 
         #self.ui.tableWidget.horizontalHeader().setStretchLastSection(True)  # 最后一列自动填充
         #self.ui.tableWidget.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)  # 所有列自动调整
@@ -225,10 +227,13 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             start_date = self.ui.dateEdit.date().toPyDate()
             end_date = self.ui.dateEdit_2.date().toPyDate()
             base_position = int(self.ui.lineEdit_2.text() or "0")
-            can_use_position = int(self.ui.lineEdit_2.text() or "0")
+            can_use_position = int(self.ui.lineEdit_7.text() or "0")
             target_position = int(self.ui.lineEdit_6.text() or "0")
-            initial_capital = int(self.ui.lineEdit_3.text() or "1000000")
+            initial_capital = float(self.ui.lineEdit_3.text() or "1000000")
             avg_cost = float(self.ui.lineEdit_4.text() or "0")
+            min_trade_amount = int(self.ui.lineEdit_8.text() or "10000")
+            trade_size = int(self.ui.lineEdit_9.text() or "100")
+
             self.initial_threshold_everyday = float(self.ui.lineEdit_5.text() or "0.004")
             strategy_type = self.ui.comboBox.currentData()
             current_index = self.ui.comboBox_2.currentIndex()
@@ -274,7 +279,7 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             
             # 创建策略
             if strategy_type == "adaptive_limit":
-                self.strategy = AdaptiveLimitStrategy(self.engine, threshold=self.initial_threshold_everyday, trade_size=100, logger=self.logger)
+                self.strategy = AdaptiveLimitStrategy(self.engine, threshold=self.initial_threshold_everyday, trade_size=trade_size, min_trade_amount=min_trade_amount, logger=self.logger)
             elif strategy_type == "order_book":
                 self.strategy = OrderBookStrategy(self.engine, bid_vol_threshold=500, ask_vol_threshold=300, logger=self.logger)
             
