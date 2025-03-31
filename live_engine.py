@@ -281,7 +281,11 @@ class LiveEngine(TradeEngine):
         best_ask = self.askPrices[0]  # 卖一价
         ret = self.smart_order_price(direction, best_bid, best_ask, tick_size)
         direction_str = "买入" if direction == 'buy' else "卖出"
-        self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid}，最新卖价：{best_ask}，智能定价：{ret}")        
+        if stock_code.startswith('1') or stock_code.startswith('5'):
+            ret_text = f"{ret:.3f}"
+        else:
+            ret_text = f"{ret:.2f}"
+        self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid}，最新卖价：{best_ask}，智能定价：{ret_text}")        
         return ret
 
     def buy(self, stock_code, price, volume, datetime):
@@ -536,12 +540,12 @@ class LiveEngine(TradeEngine):
                 # 处理未成交订单
                 if order.order_status in [50, 51, 52] and time_diff > 30:
                     self.logger.info(f"股票代码：{order.stock_code}，订单{order.order_id}超时未完全成交，尝试撤单重下")
-                    self.retry_order(order.order_id)
+                    self.retry_order(order.stock_code, order.order_id)
             
             elif order.order_status == 54:  # 已撤单
                 if order.order_id in self.active_orders:
                     self.logger.info(f"股票代码：{order.stock_code}，订单{order.order_id}已撤单，尝试重下")
-                    self.retry_order(order.order_id)
+                    self.retry_order(order.stock_code, order.order_id)
         except Exception as e:
             self.logger.error(f"股票代码: {order.stock_code}, 处理订单状态变化出错: {str(e)}")
 
@@ -593,7 +597,10 @@ class LiveEngine(TradeEngine):
         
         # 每次重试增加1分钱滑点
         order_info['retry_count'] += 1
-        additional_slippage = order_info['retry_count'] * 0.01
+        if order_info['stock_code'].startswith('1') or order_info['stock_code'].startswith('5'):
+            additional_slippage = (order_info['retry_count']+1) * 0.001
+        else:
+            additional_slippage = (order_info['retry_count']+1) * 0.01
         
         # 获取最新行情
         current_bid = self.bidPrices[0]
@@ -601,12 +608,15 @@ class LiveEngine(TradeEngine):
         
         # 计算新价格
         if order_info['direction'] == 'buy':
-            new_price = current_ask + 0.01 + additional_slippage
+            new_price = current_ask + additional_slippage
         else:
-            new_price = current_bid - 0.01 - additional_slippage
+            new_price = current_bid - additional_slippage
         
         # 价格四舍五入到分
-        new_price = round(new_price, 2)
+        if order_info['stock_code'].startswith('1') or order_info['stock_code'].startswith('5'):
+            new_price = round(new_price, 3)
+        else:
+            new_price = round(new_price, 2)
         
         # 重新下单
         if order_info['direction'] == 'buy':

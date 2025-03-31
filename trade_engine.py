@@ -256,6 +256,8 @@ class TradeEngine(ABC):
         # 获取最新五档行情
         ret = self.smart_order_price(direction, best_bid, best_ask, slippage)
         direction_str = "买入" if direction == 'buy' else "卖出"
-        self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid}，最新卖价：{best_ask}，智能定价：{ret}")        
-        return ret
-        return price 
+        if stock_code.startswith(('1', '5')):
+            self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid:.3f}，最新卖价：{best_ask:.3f}，智能定价：{ret:.3f}")        
+        else:
+            self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid:.2f}，最新卖价：{best_ask:.2f}，智能定价：{ret:.2f}")        
+        return ret 

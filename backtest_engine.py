@@ -90,6 +90,23 @@ class BacktestEngine(TradeEngine):
         self.start_date = None  # 新增
         self.end_date = None    # 新增
 
+        data_dir = os.path.join(os.path.dirname(__file__), 'data')
+        # 检查是否存在all_a_stocks.csv文件
+        csv_file = os.path.join(data_dir, 'all_a_stocks.csv')
+        if os.path.exists(csv_file):
+            try:
+                self.all_a_stocks = pd.read_csv(csv_file, dtype={'证券代码': str})
+                self.logger.info(f"已从{csv_file}文件读取全A股股票和基金名称信息")
+            except Exception as e:
+                self.logger.error(f"读取{csv_file}文件时出错: {e}")
+
+    def get_stock_name(self, stock_code):
+        # 查找匹配的股票代码
+        result = self.all_a_stocks[self.all_a_stocks['证券代码'] == stock_code[:6]]
+        if not result.empty:
+            return result['证券简称'].values[0]
+        return "未知名称"
+
     def load_data(self, stock_code, start_date, end_date, period="tick"):
         """带缓存的数据加载方法"""
         self.start_date = pd.to_datetime(start_date)
@@ -319,6 +336,17 @@ class BacktestEngine(TradeEngine):
                 transfer_fee = 0
             total_cost = amount + commission + transfer_fee
             
+            # 判断是否为T+0 ETF
+            is_t0_etf = False
+            if stock_code.startswith(('159', '511', '518', '513')):  # ETF代码前缀
+                # 检查是否为T+0 ETF
+                t0_keywords = ['港股', '恒生', '债券', '货币', '黄金', '原油', 'QDII', '现金', '短债', '超短债', '国债', '信用债', '可转债']
+                stock_name = self.get_stock_name(stock_code)
+                if any(keyword in stock_name for keyword in t0_keywords):
+                    is_t0_etf = True
+            self.logger.info("---------------------------------------------------------------------------------------")
+            self.logger.info(f"股票代码: {stock_code}, 股票名称: {stock_name}, 是否为T+0 ETF: {is_t0_etf}")
+            self.logger.info("---------------------------------------------------------------------------------------")
             # 记录交易
             trade = {
                 'time': datetime,
@@ -330,7 +358,7 @@ class BacktestEngine(TradeEngine):
                 'commission': commission,
                 'total_cost': total_cost,
                 'volume_after_trade': self.get_volume(stock_code) + volume,
-                'can_use_volume_after_trade': self.get_can_use_volume(stock_code)
+                'can_use_volume_after_trade': self.get_can_use_volume(stock_code) + (volume if is_t0_etf else 0)
             }
             self.trades.append(trade)
 
@@ -348,7 +376,7 @@ class BacktestEngine(TradeEngine):
                 stock_code=stock_code,
                 cash=-total_cost,
                 volume=volume,
-                can_use_volume=0, # 买入时，当天可用持仓量不变
+                can_use_volume=volume if is_t0_etf else 0,  # 如果是T+0 ETF，买入时增加可用持仓量
                 open_price=new_avg_price
             )
 
@@ -358,8 +386,6 @@ class BacktestEngine(TradeEngine):
             # 打印买入后的持仓信息
             self.logger.info(f"股票代码：{stock_code}，买入交易后的持仓信息: {self.positions[stock_code]}")
     
-            # 在现有代码中添加
-            
             return True, "买入成功"
 
         except Exception as e:

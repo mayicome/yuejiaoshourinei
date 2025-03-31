@@ -364,6 +364,7 @@ class UpgradeThread(QThread):
         except Exception as e:
             success = False
             message = f"升级失败: {str(e)}"
+            self.logger.error(message)
 
         # 发送信号
         self.finished_signal.emit(success, message)
@@ -1355,7 +1356,10 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             self.tableWidget.setItem(current_row, 1, QTableWidgetItem(datetime.now().strftime('%H:%M:%S')))
             self.tableWidget.setItem(current_row, 2, QTableWidgetItem(order.stock_code))
             self.tableWidget.setItem(current_row, 3, QTableWidgetItem("买入" if order.order_type == 23 else "卖出"))
-            self.tableWidget.setItem(current_row, 4, QTableWidgetItem(str(round(order.price, 2))))
+            if order.stock_code.startswith(('1', '5')):
+                self.tableWidget.setItem(current_row, 4, QTableWidgetItem(f"{order.price:.3f}"))
+            else:
+                self.tableWidget.setItem(current_row, 4, QTableWidgetItem(f"{order.price:.2f}"))
             self.tableWidget.setItem(current_row, 5, QTableWidgetItem(str(order.order_volume)))
             self.tableWidget.setItem(current_row, 6, QTableWidgetItem(status_map.get(order.order_status, "未知")))
             self.tableWidget.setItem(current_row, 7, QTableWidgetItem("岳教授日内交易"))

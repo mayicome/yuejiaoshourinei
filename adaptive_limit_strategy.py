@@ -112,7 +112,7 @@ class AdaptiveLimitStrategy(StrategyBase):
                     f"股票代码: {stock_code}, "
                     f"新交易日: {current_date}, "
                     f"初始仓位: {self.daily_stats['initial_position']}, "
-                    f"初始成本: {self.daily_stats['initial_cost']}, "
+                    f"初始成本: {self.daily_stats['initial_cost']:.2f}, "
                     f"目标仓位: {target_position}, "
                     f"当前价格：{current_price:.3f}" if stock_code.startswith(('1', '5')) else f"当前价格：{current_price:.2f}"
                 )
@@ -361,13 +361,15 @@ class AdaptiveLimitStrategy(StrategyBase):
         # 避免重复写logger（如果base_price和threshold都与上一次相同，则不写logger）
         if hasattr(self, 'last_threshold') and hasattr(self, 'last_base_price'):
             if self.last_base_price != base_price or self.last_threshold != threshold:
+                base_price_text = f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
                 self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，"
-                                 f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
+                                 f"{base_price_text}"
                                  f"买入点={buy_point}，卖出点={sell_point}"
                                  )
         else:
+            base_price_text = f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
             self.logger.info(f"股票代码: {stock_code}, 计算买卖点价格，"
-                             f"基准价={base_price:.3f}，" if stock_code.startswith(('1', '5')) else f"基准价={base_price:.2f}，"
+                             f"{base_price_text}"
                              f"买入点={buy_point}，卖出点={sell_point}")
                 
         self.last_base_price = base_price
