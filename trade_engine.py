@@ -223,41 +223,68 @@ class TradeEngine(ABC):
             self.strategy.on_tick(tick_data)
 
     def smart_order_price(self, direction, best_bid, best_ask, slippage):
-        """改进后的智能定价策略"""
-        # 获取最小价格变动单位（A股为0.01元）
-        tick_size = 0.01
+        """改进后的智能定价策略（ETF1厘钱，其他1分钱+动态调整）"""        
+        # 基础滑点设置
+        base_slippage = slippage
         
+        # 动态调整逻辑（示例：当价格>20元时增加额外滑点）
+        dynamic_slippage = 0 if best_ask <= 20 else slippage * 2
+        total_slippage = base_slippage + dynamic_slippage
+
         if direction == 'buy':
-            # 计算理论价格
-            theoretical_price = best_ask * (1 + slippage)
-            # 确保至少比卖一价高一个最小单位
+            # 买方向：取卖一价加滑点
             price = max(
-                round(theoretical_price, 2),  # 基础四舍五入
-                best_ask + tick_size  # 保底加一个最小单位
+                best_ask + total_slippage,
+                best_ask + slippage
             )
         elif direction == 'sell':
-            theoretical_price = best_bid * (1 - slippage)
+            # 卖方向：取买一价减滑点
             price = min(
-                round(theoretical_price, 2),
-                best_bid - tick_size
+                best_bid - total_slippage,
+                best_bid - slippage
             )
         else:
             return None
         
-        # 二次校验价格有效性
-        if direction == 'buy' and price <= best_ask:
-            price = best_ask + tick_size
-        elif direction == 'sell' and price >= best_bid:
-            price = best_bid - tick_size
-        
-        return round(price, 2)
+        # 确保符合最小报价单位
+        if base_slippage == 0.001:
+            return round(round(price / 0.001) * 0.001, 3)
+        else:
+            return round(round(price / 0.01) * 0.01, 2)
 
-    def calculate_order_price(self, direction, stock_code, best_bid, best_ask, slippage):
-        # 获取最新五档行情
-        ret = self.smart_order_price(direction, best_bid, best_ask, slippage)
+    def calculate_order_price(self, mode,direction, stock_code, best_bid, best_ask, slippage):
+        # 基础滑点设置
+        base_slippage = slippage
+        
+        # 动态调整逻辑（示例：当价格>20元时增加额外滑点）
+        dynamic_slippage = 0 if best_ask <= 20 else slippage
+        if mode == 'live':
+            total_slippage = base_slippage + dynamic_slippage
+        else:
+            total_slippage = 0
+
+        if direction == 'buy':
+            # 买方向：取卖一价加滑点
+            price = best_ask + total_slippage
+
+        elif direction == 'sell':
+            # 卖方向：取买一价减滑点
+            price = best_bid - total_slippage
+
+        else:
+            return None
+        
+        # 确保符合最小报价单位
+        if base_slippage == 0.001:
+            ret = round(round(price / 0.001) * 0.001, 3)
+        else:
+            ret = round(round(price / 0.01) * 0.01, 2)
+
+        
         direction_str = "买入" if direction == 'buy' else "卖出"
         if stock_code.startswith(('1', '5')):
             self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid:.3f}，最新卖价：{best_ask:.3f}，智能定价：{ret:.3f}")        
         else:
             self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid:.2f}，最新卖价：{best_ask:.2f}，智能定价：{ret:.2f}")        
-        return ret 
+        
+        return ret

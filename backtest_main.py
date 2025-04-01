@@ -224,12 +224,15 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
             
             # 获取输入参数
             stock_code = self.ui.lineEdit.text().strip()
+            self.stock_code = stock_code
             start_date = self.ui.dateEdit.date().toPyDate()
             end_date = self.ui.dateEdit_2.date().toPyDate()
             base_position = int(self.ui.lineEdit_2.text() or "0")
+            self.base_position = base_position
             can_use_position = int(self.ui.lineEdit_7.text() or "0")
             target_position = int(self.ui.lineEdit_6.text() or "0")
             initial_capital = float(self.ui.lineEdit_3.text() or "1000000")
+            self.initial_capital = initial_capital
             avg_cost = float(self.ui.lineEdit_4.text() or "0")
             min_trade_amount = int(self.ui.lineEdit_8.text() or "10000")
             trade_size = int(self.ui.lineEdit_9.text() or "100")
@@ -367,10 +370,19 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
                 f"回测区间: {self.ui.dateEdit.date().toString('yyyy-MM-dd')} 至 "
                 f"{self.ui.dateEdit_2.date().toString('yyyy-MM-dd')}\n"
                 f"波动阈值: {self.initial_threshold_everyday:.2%}\n\n"
+                f"初始资金: {self.initial_capital:.2f}\n"
+                f"初始持仓: {self.base_position}\n"
+                f"初始市值: {self.engine.initial_market_value:.2f}\n"
+                f"最终资金: {self.engine.cash:.2f}\n"
+                f"最终持仓: {self.engine.positions[self.stock_code]['volume']}\n"
+                f"最终持仓成本: {self.engine.positions[self.stock_code]['open_price']:.2f}\n"
+                f"最终市值: {self.engine.market_value:.2f}\n"
+                f"总收益：{self.engine.cash+self.engine.market_value-self.initial_capital-self.engine.initial_market_value:.2f}\n"
+                f"总收益率: {results['total_return']:.2%}\n"
+                
                                
                 "====== 收益统计 ======\n"
-                f"夏普比率: {results['sharpe_ratio']:.2f}\n"
-                f"总收益: {results['total_return']:.2%}\n"                
+                f"夏普比率: {results['sharpe_ratio']:.2f}\n"           
                 f"最大回撤: {results['max_drawdown']:.2%}\n"
                 f"回撤波峰时间: {results['peak_time']}\n"
                 f"回撤波谷时间: {results['max_dd_time']}\n"
@@ -405,37 +417,20 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
         try:
             current_row = self.ui.tableWidget.rowCount()
             self.ui.tableWidget.insertRow(current_row)
-            
-            # 处理时间
-            '''if isinstance(trade['time'], pd.Series):
-                # 从科学计数法格式的时间戳转换为正常时间
-                time_value = float(trade['time']['time'])  # 获取时间值
-                time_str = f"{time_value:.0f}"  # 转换为整数字符串
-                # 提取年月日时分秒
-                year = int(time_str[:4])
-                month = int(time_str[4:6])
-                day = int(time_str[6:8])
-                hour = int(time_str[8:10])
-                minute = int(time_str[10:12])
-                second = int(time_str[12:14])
-                time_str = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-            else:
-                time_str = self.format_trade_time(trade['time'])'''
-            print(f"trade['time']: {trade['time']}")
             # 添加交易记录
             self.ui.tableWidget.setItem(current_row, 0, QTableWidgetItem(str(trade['time'])))
             self.ui.tableWidget.setItem(current_row, 1, QTableWidgetItem(str(trade['stock_code'])))
             direct = '买入' if trade['direction'] == 'buy' else '卖出'
             self.ui.tableWidget.setItem(current_row, 2, QTableWidgetItem(direct))
-            self.ui.tableWidget.setItem(current_row, 3, QTableWidgetItem(f"{float(trade['price']):.3f}"))
+            if trade['stock_code'].startswith('1') or trade['stock_code'].startswith('5'):
+                self.ui.tableWidget.setItem(current_row, 3, QTableWidgetItem(f"{float(trade['price']):.3f}"))
+            else:
+                self.ui.tableWidget.setItem(current_row, 3, QTableWidgetItem(f"{float(trade['price']):.2f}"))
             self.ui.tableWidget.setItem(current_row, 4, QTableWidgetItem(str(trade['volume'])))
             
             # 计算并显示总费用
-            if trade['direction'] == 'buy':
-                total_fee = trade['commission']
-            else:  # sell
-                total_fee = trade['commission'] + trade['stamp_duty']
-            self.ui.tableWidget.setItem(current_row, 5, QTableWidgetItem(f"{total_fee:.2f}"))
+            total_fee = trade['total_fee']
+            self.ui.tableWidget.setItem(current_row, 5, QTableWidgetItem(f"{total_fee:.3f}"))
 
             self.ui.tableWidget.setItem(current_row, 6, QTableWidgetItem(str(trade['volume_after_trade'])))
             self.ui.tableWidget.setItem(current_row, 7, QTableWidgetItem(str(trade['can_use_volume_after_trade'])))
@@ -638,41 +633,6 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
         
         # 滚动到表格顶部
         self.ui.tableWidget.scrollToTop()
-
-    '''def resizeEvent(self, event):
-        """窗口大小变化时重新调整表格和列宽"""
-        super().resizeEvent(event)
-        
-        # 确保表格存在且可见
-        if hasattr(self, 'ui') and hasattr(self.ui, 'tableWidget') and self.ui.tableWidget.isVisible():
-            # 强制表格宽度和父容器一致
-            parent_width = self.ui.tableWidget.parent().width()
-            self.ui.tableWidget.setFixedWidth(parent_width)
-            
-            # 重新计算列宽
-            available_width = parent_width - 20  # 减去滚动条宽度
-            
-            # 时间列占40%宽度（进一步加宽）
-            self.ui.tableWidget.setColumnWidth(0, int(available_width * 0.4))
-            
-            # 其他列平分剩余宽度
-            remaining_width = available_width * 0.6
-            column_widths = [
-                int(remaining_width * 0.15),  # 股票代码 (1)
-                int(remaining_width * 0.1),   # 交易类型 (2)
-                int(remaining_width * 0.15),  # 价格 (3)
-                int(remaining_width * 0.1),   # 数量 (4)
-                int(remaining_width * 0.15),  # 手续费 (5)
-                int(remaining_width * 0.2),   # 交易后持仓 (6)
-                int(remaining_width * 0.15)   # 可用持仓 (7)
-            ]
-            
-            for col, width in enumerate(column_widths, 1):
-                self.ui.tableWidget.setColumnWidth(col, width)
-            
-            # 打印调试信息
-            print(f"父容器宽度: {parent_width}, 表格宽度: {self.ui.tableWidget.width()}")
-            print(f"列宽总和: {sum([self.ui.tableWidget.columnWidth(i) for i in range(8)])}")'''
 
 class BacktestThread(QThread):
     # 定义信号

@@ -164,7 +164,6 @@ class LiveEngine(TradeEngine):
         self.market_value = 0
         self.total_asset = 0
         
-        self.slippage = 0.01  # 改为固定1分钱
         self.order_retry_limit = 3  # 订单重试次数
         self.active_orders = {}  # 跟踪活跃订单
         
@@ -240,7 +239,7 @@ class LiveEngine(TradeEngine):
         self.strategy = strategy
         #self.logger.info(f"设置策略: {strategy.__class__.__name__}")
 
-    def smart_order_price(self, direction, best_bid, best_ask, tick_size):
+    '''def smart_order_price(self, direction, best_bid, best_ask, tick_size):
         """改进后的智能定价策略（固定1分钱+动态调整）"""        
         # 基础滑点设置
         base_slippage = tick_size  # 固定1分钱
@@ -268,9 +267,9 @@ class LiveEngine(TradeEngine):
         if base_slippage == 0.001:
             return round(round(price / 0.001) * 0.001, 3)
         else:
-            return round(round(price / 0.01) * 0.01, 2)
+            return round(round(price / 0.01) * 0.01, 2)'''
 
-    def calculate_order_price(self, stock_code, direction):
+    '''def calculate_order_price(self, stock_code, direction):
         """获取实时定价"""
         # 获取最新五档行情
         if stock_code.startswith('1') or stock_code.startswith('5'):
@@ -286,7 +285,7 @@ class LiveEngine(TradeEngine):
         else:
             ret_text = f"{ret:.2f}"
         self.logger.info(f"股票代码：{stock_code}，{direction_str}，最新买价：{best_bid}，最新卖价：{best_ask}，智能定价：{ret_text}")        
-        return ret
+        return ret'''
 
     def buy(self, stock_code, price, volume, datetime):
         """
@@ -300,8 +299,14 @@ class LiveEngine(TradeEngine):
             tuple: (bool, str) 交易是否成功及消息
         """
         try:
+            # 根据股票代码设置滑点
+            if stock_code.startswith('1') or stock_code.startswith('5'):
+                self.slippage = 0.001
+            else:
+                self.slippage = 0.01
+
             # 获取智能定价
-            dynamic_price = self.calculate_order_price(stock_code, 'buy')
+            dynamic_price = self.calculate_order_price('live', 'buy', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
             if not dynamic_price:
                 self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能买入")
                 return False, f"股票代码：{stock_code}，无法获取实时价格，未能买入"#super().buy(stock_code, price, volume, datetime)
@@ -363,8 +368,14 @@ class LiveEngine(TradeEngine):
             tuple: (bool, str) 交易是否成功及消息
         """
         try:
+            # 根据股票代码设置滑点
+            if stock_code.startswith('1') or stock_code.startswith('5'):
+                self.slippage = 0.001
+            else:
+                self.slippage = 0.01
+
             # 获取智能定价
-            dynamic_price = self.calculate_order_price(stock_code, 'sell')
+            dynamic_price = self.calculate_order_price('live', 'sell', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
             if not dynamic_price:
                 self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能卖出")
                 return False, f"股票代码：{stock_code}，无法获取实时价格，未能卖出"#super().sell(stock_code, price, volume, datetime)

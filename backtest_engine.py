@@ -68,13 +68,10 @@ class BacktestEngine(TradeEngine):
         # 设置初始账户信息
         self.setup_account_info(stock_code, base_position, can_use_position, target_position, avg_cost, initial_capital)
 
-        #if self.stock_code.startswith('1') or self.stock_code.startswith('5'):
-        #    self.slippage = 0.001
-        #else:
-        #    self.slippage = 0.01
-
-        self.slippage = 0 # 回测时不考虑滑点
-
+        if self.stock_code.startswith('1') or self.stock_code.startswith('5'):
+            self.slippage = 0.001
+        else:
+            self.slippage = 0.01
         
         # 交易费用设置
         self.commission_rate = 0.0001  # 佣金费率，双向收取，万分之1
@@ -302,7 +299,8 @@ class BacktestEngine(TradeEngine):
             # 更新市值
             # 对于positions里的每个position,取它的总量乘以open_price得到持仓市值
             # 然后把这些持仓市值加起来得到总市值
-            self.market_value = sum(position['volume'] * position['open_price'] for position in self.positions.values())
+            #self.market_value = sum(position['volume'] * position['open_price'] for position in self.positions.values())
+            self.market_value = self.positions[stock_code]['volume'] * self.positions[stock_code]['open_price']
             self.total_asset = self.cash + self.market_value
 
             return True
@@ -323,7 +321,7 @@ class BacktestEngine(TradeEngine):
             tuple: (bool, str) 交易是否成功及错误信息
         """
         # 获取智能定价
-        dynamic_price = self.calculate_order_price('buy', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
+        dynamic_price = self.calculate_order_price('backtest', 'buy', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
         if not dynamic_price:
             self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能买入")
             return False, f"股票代码：{stock_code}，无法获取实时价格，未能买入"#super().buy(stock_code, price, volume, datetime)
@@ -335,7 +333,7 @@ class BacktestEngine(TradeEngine):
         try:
             # 计算交易费用
             amount = dynamic_price * volume
-            commission,stamp_duty,total_cost  = self.calculate_total_cost('buy',stock_code, amount)
+            commission,stamp_duty,total_fee  = self.calculate_total_cost('buy',stock_code, amount)
 
             # 判断是否为T+0 ETF
             is_t0_etf = False
@@ -354,25 +352,27 @@ class BacktestEngine(TradeEngine):
                 'volume': volume,
                 'amount': amount,
                 'commission': commission,
-                'total_cost': total_cost,
+                'total_fee': total_fee,
                 'volume_after_trade': self.get_volume(stock_code) + volume,
                 'can_use_volume_after_trade': self.get_can_use_volume(stock_code) + (volume if is_t0_etf else 0)
             }
             self.trades.append(trade)
 
-            if stock_code in self.positions:
+            '''if stock_code in self.positions:
                 # 计算新的平均成本
                 old_volume = self.positions[stock_code]['volume']
                 old_cost = self.positions[stock_code]['open_price'] * old_volume
                 new_cost = old_cost + dynamic_price * volume
                 new_avg_price = new_cost / (old_volume + volume)
             else:
-                new_avg_price = dynamic_price
+                new_avg_price = dynamic_price'''
+            
+            new_avg_price = dynamic_price
 
             # 更新账户信息
             self.update_account_info(
                 stock_code=stock_code,
-                cash=-total_cost,
+                cash= - amount - total_fee,
                 volume=volume,
                 can_use_volume=volume if is_t0_etf else 0,  # 如果是T+0 ETF，买入时增加可用持仓量
                 open_price=new_avg_price
@@ -395,7 +395,7 @@ class BacktestEngine(TradeEngine):
         修改后的卖出方法，添加盈亏计算
         """
         # 获取智能定价
-        dynamic_price = self.calculate_order_price('sell', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
+        dynamic_price = self.calculate_order_price('backtest', 'sell', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
         if not dynamic_price:
             self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能卖出")
             return False, f"股票代码：{stock_code}，无法获取实时价格，未能卖出"
@@ -585,7 +585,9 @@ class BacktestEngine(TradeEngine):
         """计算总收益率"""
         try:
             initial_total = self.initial_cash + self.initial_market_value
+            print("initial_total:",initial_total,"self.initial_cash:",self.initial_cash,"self.initial_market_value:",self.initial_market_value)
             final_total = self.cash + self.market_value
+            print("final_total:",final_total,"self.cash:",self.cash,"self.market_value:",self.market_value)
             return (final_total - initial_total) / initial_total
         except ZeroDivisionError:
             return 0.0
