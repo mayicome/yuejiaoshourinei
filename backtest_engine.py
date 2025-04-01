@@ -68,13 +68,19 @@ class BacktestEngine(TradeEngine):
         # 设置初始账户信息
         self.setup_account_info(stock_code, base_position, can_use_position, target_position, avg_cost, initial_capital)
 
-        self.slippage = 0.001  # 默认滑点控制0.1%
+        #if self.stock_code.startswith('1') or self.stock_code.startswith('5'):
+        #    self.slippage = 0.001
+        #else:
+        #    self.slippage = 0.01
+
+        self.slippage = 0 # 回测时不考虑滑点
+
         
         # 交易费用设置
-        self.commission_rate = 0.00012  # 佣金费率，双向收取，万分之1.2
+        self.commission_rate = 0.0001  # 佣金费率，双向收取，万分之1
         self.min_commission = 5.0       # 最低佣金，5元
         self.stamp_duty_rate = 0.001    # 印花税，仅卖出收取，千分之1
-        self.transfer_fee_rate = 0.00001  # 过户费，双向收取，万分之0.1
+        self.transfer_fee_rate = 0.0000441  # 过户费（含经手费），双向收取，万分之0.441
 
         # 回测进度相关
         self.current_idx = 0
@@ -329,13 +335,8 @@ class BacktestEngine(TradeEngine):
         try:
             # 计算交易费用
             amount = dynamic_price * volume
-            commission = self.calculate_commission(amount)
-            if stock_code.startswith('0'):
-                transfer_fee = amount * self.transfer_fee_rate
-            else:
-                transfer_fee = 0
-            total_cost = amount + commission + transfer_fee
-            
+            commission,stamp_duty,total_cost  = self.calculate_total_cost('buy',stock_code, amount)
+
             # 判断是否为T+0 ETF
             is_t0_etf = False
             if stock_code.startswith(('159', '511', '518', '513')):  # ETF代码前缀
@@ -344,9 +345,6 @@ class BacktestEngine(TradeEngine):
                 stock_name = self.get_stock_name(stock_code)
                 if any(keyword in stock_name for keyword in t0_keywords):
                     is_t0_etf = True
-            self.logger.info("---------------------------------------------------------------------------------------")
-            self.logger.info(f"股票代码: {stock_code}, 股票名称: {stock_name}, 是否为T+0 ETF: {is_t0_etf}")
-            self.logger.info("---------------------------------------------------------------------------------------")
             # 记录交易
             trade = {
                 'time': datetime,
@@ -399,14 +397,15 @@ class BacktestEngine(TradeEngine):
         # 获取智能定价
         dynamic_price = self.calculate_order_price('sell', stock_code, self.bidPrices[0], self.askPrices[0], self.slippage)
         if not dynamic_price:
-            self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能买入")
-            return False, f"股票代码：{stock_code}，无法获取实时价格，未能买入"#super().buy(stock_code, price, volume, datetime)
+            self.logger.warning(f"股票代码：{stock_code}，无法获取实时价格，未能卖出")
+            return False, f"股票代码：{stock_code}，无法获取实时价格，未能卖出"
             
         self.logger.info(f"股票代码：{stock_code}，智能卖出定价: {dynamic_price} (基准价: {price})")
 
         # 打印交易前的持仓信息
         self.logger.info(f"股票代码：{stock_code}，卖出交易前的持仓信息: {self.positions[stock_code]}")
-        try:            
+        #try:            
+        if True:
             # 计算盈亏
             position = self.positions.get(stock_code)
             if position:
@@ -416,14 +415,7 @@ class BacktestEngine(TradeEngine):
                 cost = position['open_price'] * volume
                 # 计算实际成交金额（扣除费用）
                 amount = dynamic_price * volume
-                commission = self.calculate_commission(amount)
-                stamp_duty = amount * self.stamp_duty_rate
-                if stock_code.startswith('0'):
-                    transfer_fee = amount * self.transfer_fee_rate
-                else:
-                    transfer_fee = 0
-                transfer_fee = amount * self.transfer_fee_rate
-                total_fee = commission + stamp_duty + transfer_fee
+                commission,stamp_duty,total_fee  = self.calculate_total_cost('sell',stock_code, amount)
                 net_proceeds = amount - total_fee
                 
                 # 计算盈亏
@@ -472,20 +464,32 @@ class BacktestEngine(TradeEngine):
                 
                 return True, "卖出成功"
             
-        except Exception as e:
-            self.logger.error(f"卖出出错: {str(e)}")
-            return False, f"卖出出错: {str(e)}"
+        #except Exception as e:
+        #    self.logger.error(f"卖出出错: {str(e)}")
+        #    return False, f"卖出出错: {str(e)}"
 
-    def calculate_commission(self, amount):
+    def calculate_total_cost(self, direction, stock_code, amount):
         """
-        计算交易佣金
+        计算交易成本
         Args:
             amount (float): 交易金额
         Returns:
             float: 佣金金额
         """
         commission = amount * self.commission_rate
-        return max(commission, self.min_commission)
+
+        if not stock_code.startswith(('1', '5')):
+            commission = max(commission, self.min_commission)
+        transfer_fee = amount * self.transfer_fee_rate
+
+        if direction == 'sell' and not stock_code.startswith(('1', '5')):
+            stamp_duty = amount * self.stamp_duty_rate
+        else:
+            stamp_duty = 0
+        
+        total_fee = commission + transfer_fee + stamp_duty 
+        
+        return commission,stamp_duty,total_fee
 
     def calculate_win_rate(self):
         """
