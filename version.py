@@ -1,4 +1,4 @@
-VERSION = "v1.1.0"
+VERSION = "v1.1.1"
 
 def get_version():
     return VERSION
@@ -15,6 +15,5 @@ def show_version_info():
 版本号: {VERSION}
 发布日期: 2025-03-24
 主要功能:
-- 修改回测算法以支持T+0
-- 修改基金的小数点后显示位数
+- 修改回测算法的成本计算
 """ 
