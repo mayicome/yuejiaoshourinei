@@ -217,7 +217,18 @@ class BacktestEngine(TradeEngine):
             current_value = self.get_portfolio_value()
             
             self.portfolio_values.append(current_value)
-
+        # 回测的最后，取最后一条数据的最新价作为收盘价，以便统一市值的计算口径，便于比较不同阈值的回测结果。
+        last_price = self.data.loc[self.data.index[-1], 'lastPrice']
+        print("====================================================================")
+        print("last_price:", last_price)
+        # 更新账户信息
+        self.update_account_info(
+            stock_code=self.stock_code,
+            volume=0,
+            can_use_volume=0,
+            open_price=last_price
+        )
+        print("self.positions:", self.positions)
         return True
 
     def set_strategy(self, strategy):
@@ -288,7 +299,7 @@ class BacktestEngine(TradeEngine):
                 self.positions[stock_code]['volume'] += int(volume)
                 self.positions[stock_code]['can_use_volume'] += int(can_use_volume)
                 self.positions[stock_code]['open_price'] = open_price
-                self.positions[stock_code]['market_value'] = volume * open_price
+            self.positions[stock_code]['market_value'] = volume * open_price
 
             # 更新资金相关
             if cash is not None:
@@ -735,5 +746,5 @@ class BacktestEngine(TradeEngine):
             return None
 
 if __name__ == '__main__':
-    engine = BacktestEngine('000001', 100, 10, 1000000)
-    engine.load_data('000001', datetime(2025,2,4), datetime(2025,3,3), 'tick')
+    engine = BacktestEngine('000001', 10000, 10000, 10000, 10,10000,"tick")    
+    

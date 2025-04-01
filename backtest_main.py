@@ -375,7 +375,7 @@ class BacktestWindow(QMainWindow, Ui_MainWindow):
                 f"初始市值: {self.engine.initial_market_value:.2f}\n"
                 f"最终资金: {self.engine.cash:.2f}\n"
                 f"最终持仓: {self.engine.positions[self.stock_code]['volume']}\n"
-                f"最终持仓成本: {self.engine.positions[self.stock_code]['open_price']:.2f}\n"
+                f"最终持仓成本: {self.engine.positions[self.stock_code]['open_price']:.3f}\n"
                 f"最终市值: {self.engine.market_value:.2f}\n"
                 f"总收益：{self.engine.cash+self.engine.market_value-self.initial_capital-self.engine.initial_market_value:.2f}\n"
                 f"总收益率: {results['total_return']:.2%}\n"
