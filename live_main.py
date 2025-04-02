@@ -13,23 +13,18 @@ from PyQt5.QtWidgets import (
     QWidget,
     QHeaderView,
     QLabel,
-    QInputDialog,
     QDialog,
     QVBoxLayout,
     QLineEdit,
     QPushButton,
-    QTextEdit,
     QHBoxLayout,
-    QSplitter,
     QProgressBar,
-    QProgressDialog,
-    QComboBox,
     QDateEdit
 )
-from PyQt5.QtGui import QIntValidator, QRegExpValidator, QDoubleValidator, QColor, QTextCursor
+from PyQt5.QtGui import QIntValidator, QRegExpValidator, QDoubleValidator
 from PyQt5.QtCore import (
     QTimer, QThread, QMetaObject, Q_ARG, pyqtSlot, pyqtSignal,
-    Qt, QRegExp, QMetaType
+    Qt, QRegExp, QPoint
 )
 import xtquant.xttrader as xttrader
 from live_ui import Ui_MainWindow
@@ -42,8 +37,6 @@ import warnings
 import os
 import pandas as pd
 import akshare as ak
-from PyQt5.QtGui import QColor
-from PyQt5.QtCore import QEvent, QObject, pyqtSignal, QMetaType
 import io
 import configparser
 import chardet
@@ -55,10 +48,9 @@ import requests
 import zipfile
 import shutil
 import subprocess
-import threading
-import queue
 from pathlib import Path
 import ast
+import re
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 xtdata.enable_hello = False
@@ -372,6 +364,9 @@ class UpgradeThread(QThread):
 class LiveTradeWindow(QMainWindow, Ui_MainWindow):
     def __init__(self):
         super().__init__()
+        # 添加以下属性设置
+        self.setAttribute(Qt.WA_DeleteOnClose)  # 强制删除窗口对象
+        self.setWindowFlags(self.windowFlags() | Qt.WindowCloseButtonHint)  # 确保关闭按钮可用
         self.logger = logging.getLogger('LiveTrade')
         self.logger.info("初始化主界面")
 
@@ -1198,23 +1193,56 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
 
     def closeEvent(self, event):
         """窗口关闭事件"""
+        # 添加标志位防止重复关闭
+        if hasattr(self, '_closing'):
+            return
+        self._closing = True
+        
         try:
-            # 确保关闭时停止交易线程
-            if self.trading_thread:
-                QMessageBox.warning(self, "警告", "请先中止交易再退出")
-                event.ignore()
-                return
-            # 终止所有子线程
-            if self.trading_thread and self.trading_thread.isRunning():
-                self.trading_thread.terminate()
-                self.trading_thread.wait(2000)  # 最多等待2秒
-                
-            # 确保定时器停止
+            # 停止所有定时器
             self.update_timer.stop()
+            self.heartbeat_timer.stop()
+            if hasattr(self, 'progress_timer'):
+                self.progress_timer.stop()
             
+            # 停止交易线程
+            if self.trading_thread and self.trading_thread.isRunning():
+                self.trading_thread.stop()
+                self.trading_thread.wait(1000)
+            
+            # 停止初始化线程
+            if self.init_thread and self.init_thread.isRunning():
+                self.init_thread.terminate()
+                self.init_thread.wait(1000)
+            
+            # 停止优化线程
+            if hasattr(self, 'optimization_thread') and self.optimization_thread and self.optimization_thread.isRunning():
+                self.optimization_thread.terminate()
+                self.optimization_thread.wait(1000)
+            
+            # 停止升级线程
+            if hasattr(self, 'upgrade_thread') and self.upgrade_thread and self.upgrade_thread.isRunning():
+                self.upgrade_thread.terminate()
+                self.upgrade_thread.wait(1000)
+            
+            # 关闭所有子窗口
+            for widget in self.findChildren(QDialog):
+                widget.reject()
+            
+            # 强制终止QMT连接
+            if hasattr(self, 'xt_trader'):
+                self.xt_trader.stop()
+            
+            # 接受关闭事件
             event.accept()
+            
         except Exception as e:
             self.logger.error(f"关闭窗口时出错: {str(e)}")
+        finally:
+            # 确保执行父类的关闭事件
+            super().closeEvent(event)
+            # 强制退出应用
+            QApplication.quit()
 
     def on_position_selected(self):
         """处理持仓表格的选择变化"""
@@ -1570,11 +1598,13 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
         # 回测时使用的波动阈值
         thresholds_label = QLabel("回测时使用的波动阈值:")
         self.thresholds_input = QLineEdit()
-        #设置输入框的大小为10个字符
+        #设置输入框的大小为980个字符
         self.thresholds_input.setFixedWidth(980)
         # 从字典param_grid中获取thresholds
         # 先把字符串转换为字典
         thresholds = self.param_grid['threshold']
+        # 去掉thresholds里的[和]
+        thresholds = thresholds.strip('[]')
         self.thresholds_input.setText(str(thresholds))
         layout.addWidget(thresholds_label)
         layout.addWidget(self.thresholds_input)
@@ -1626,14 +1656,26 @@ class LiveTradeWindow(QMainWindow, Ui_MainWindow):
             start_date = self.start_date_input.date()
             end_date = self.end_date_input.date()
             if start_date > end_date:
-                QMessageBox.warning(self, "警告", "回测开始日期不能大于回测结束日期")
+                QMessageBox.warning(self, "警告", "回测结束日期不能早于回测开始日期")
                 return
             self.start_date = start_date
             self.end_date = end_date
-            print(f"回测开始日期: {self.start_date}, 回测结束日期: {self.end_date}")
             min_trade_amount = int(self.min_trade_amount_input.text())
             self.min_trade_amount = min_trade_amount
             thresholds = self.thresholds_input.text()
+            # 把thresholds里的，替换成,
+            thresholds = thresholds.replace('，', ',')
+            # 去掉thresholds里的空格
+            thresholds = thresholds.replace(' ', '')
+            # 检查thresholds里是否一串以,分割的浮点数，如果不是则提示错误
+            if not re.match(r'^\d+\.\d+(,\d+\.\d+)*$', thresholds):
+                QMessageBox.warning(self, "警告", "波动阈值格式错误，请输入以‘,’分割的浮点数")
+                return
+            # 检查thresholds是不是以[]开头和结尾，不是则加上
+            if not thresholds.startswith('['):
+                thresholds = '[' + thresholds + ']'
+            if not thresholds.endswith(']'):
+                thresholds = thresholds + ']'
             self.param_grid = {}
             self.param_grid['threshold'] = thresholds
             self.param_grid['trade_size'] = '[100]' #此处的trade_size不需要改变，只是为了程序能支持多个参数的组合才保留下来
@@ -1795,16 +1837,8 @@ if __name__ == "__main__":
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
     print(f"当前有{count}个同名程序已经开启")
-    if count > 1:
-        print(f"当前有{count}个同名程序已经开启")
-        # 在屏幕中间向右下方（100，100）偏移
-        screen_center = QApplication.primaryScreen().availableGeometry().center()
-        window.move(screen_center.x() + 10*count, screen_center.y() + 10*count)
-        window.show()
-        app.exec_() 
-
-    # 在屏幕中间显示
+    # 窗口居中
     screen_center = QApplication.primaryScreen().availableGeometry().center()
-    window.move(screen_center - window.rect().center())
+    window.move(screen_center - window.rect().center() + QPoint(40*count, 40*count))
     window.show()
     app.exec_() 
